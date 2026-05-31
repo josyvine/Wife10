@@ -3,22 +3,22 @@
 
     <item
         android:id="@+id/nav_admin_employees"
-        android:icon="@android:drawable/ic_menu_myplaces"
+        android:icon="@drawable/badge_24px"
         android:title="Employees" />
 
     <item
         android:id="@+id/nav_admin_attendance"
-        android:icon="@android:drawable/ic_menu_recent_history"
+        android:icon="@drawable/calendar_month_24px"
         android:title="Attendance" />
 
     <item
         android:id="@+id/nav_admin_locations"
-        android:icon="@android:drawable/ic_menu_compass"
+        android:icon="@drawable/pin_drop_24px"
         android:title="Locations" />
 
     <item
         android:id="@+id/nav_admin_qr"
-        android:icon="@android:drawable/ic_menu_share"
+        android:icon="@drawable/qr_code_2_24px"
         android:title="QR Code" />
 
 </menu>
