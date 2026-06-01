@@ -16,6 +16,7 @@ import com.bumptech.glide.Glide;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.ListenerRegistration;
 import com.google.firebase.firestore.Query;
 import com.inout.app.adapters.AttendanceAdapter;
 import com.inout.app.databinding.FragmentEmployeeHistoryBinding;
@@ -47,6 +48,9 @@ public class EmployeeHistoryFragment extends Fragment {
     private String employeeId;
     private User currentUserProfile;
 
+    // Track active listener to prevent background leaks and NPE crashes [2]
+    private ListenerRegistration logsListenerRegistration;
+
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         binding = FragmentEmployeeHistoryBinding.inflate(inflater, container, false);
@@ -64,10 +68,21 @@ public class EmployeeHistoryFragment extends Fragment {
         setupRecyclerView();
         fetchEmployeeIdAndLoadLogs();
 
+        // Standard CSV Export Trigger [2]
         binding.btnExportHistory.setOnClickListener(v -> {
             if (historyLogs != null && !historyLogs.isEmpty() && currentUserProfile != null) {
                 String fileName = "My_Attendance_" + new SimpleDateFormat("MMM_yyyy", Locale.US).format(new Date());
                 CsvExportHelper.exportAttendanceToCsv(requireContext(), historyLogs, fileName);
+            } else {
+                Toast.makeText(getContext(), "No history to export.", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        // New: PDF Export Trigger linking to the dynamic landscape compiler [2]
+        binding.btnExportPdfHistory.setOnClickListener(v -> {
+            if (historyLogs != null && !historyLogs.isEmpty() && currentUserProfile != null) {
+                String fileName = "My_Attendance_" + new SimpleDateFormat("MMM_yyyy", Locale.US).format(new Date());
+                PdfExportHelper.exportAttendanceToPdf(requireContext(), currentUserProfile, historyLogs, fileName);
             } else {
                 Toast.makeText(getContext(), "No history to export.", Toast.LENGTH_SHORT).show();
             }
@@ -120,10 +135,13 @@ public class EmployeeHistoryFragment extends Fragment {
     }
 
     private void loadMyLogs() {
-        db.collection("attendance")
+        logsListenerRegistration = db.collection("attendance")
                 .whereEqualTo("employeeId", employeeId)
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .addSnapshotListener((value, error) -> {
+                    // Safety check to verify view still exists before updating progress loader [2]
+                    if (binding == null) return;
+                    
                     binding.progressBar.setVisibility(View.GONE);
                     
                     if (error != null) {
@@ -166,6 +184,11 @@ public class EmployeeHistoryFragment extends Fragment {
 
     @Override
     public void onDestroyView() {
+        // Safe lifecycle cleanup: Remove active listeners before clearing references [2]
+        if (logsListenerRegistration != null) {
+            logsListenerRegistration.remove();
+            logsListenerRegistration = null;
+        }
         super.onDestroyView();
         binding = null;
     }
