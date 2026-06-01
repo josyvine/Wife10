@@ -138,8 +138,8 @@ public class EmployeeCheckInFragment extends Fragment {
                     binding.tvShiftStartHint.setText("Shift: " + startTime);
                     binding.tvShiftEndHint.setText("Shift: " + endTime);
 
-                    // Proactively schedule exact alarm notification 1 minute before shift starts [2]
-                    scheduleNearTimeNotification(startTime);
+                    // Proactively schedule dynamic exact alarm notifications [2]
+                    scheduleShiftAlarms(startTime, endTime);
 
                     String locId = currentUser.getAssignedLocationId();
                     
@@ -157,56 +157,95 @@ public class EmployeeCheckInFragment extends Fragment {
     }
 
     /**
-     * Helper to schedule system level exact alarm exactly 1 minute before the shift starts [2].
+     * Prepares calendar instances with specified offset margins based on shift configurations [2].
      */
-    private void scheduleNearTimeNotification(String shiftStartStr) {
-        if (shiftStartStr == null || shiftStartStr.isEmpty() || "N/A".equals(shiftStartStr)) return;
+    private Calendar getCalendarForTime(String timeStr, int minuteOffset) {
+        if (timeStr == null || timeStr.isEmpty() || "N/A".equals(timeStr)) return null;
         try {
             SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a", Locale.US);
-            Date parsedDate = sdf.parse(shiftStartStr);
-            if (parsedDate == null) return;
+            Date date = sdf.parse(timeStr);
+            if (date == null) return null;
 
-            Calendar shiftCal = Calendar.getInstance();
-            Calendar current = Calendar.getInstance();
+            Calendar target = Calendar.getInstance();
+            target.setTime(date);
 
-            Calendar targetCal = Calendar.getInstance();
-            targetCal.setTime(parsedDate);
+            Calendar cal = Calendar.getInstance();
+            cal.set(Calendar.HOUR_OF_DAY, target.get(Calendar.HOUR_OF_DAY));
+            cal.set(Calendar.MINUTE, target.get(Calendar.MINUTE));
+            cal.set(Calendar.SECOND, 0);
+            cal.set(Calendar.MILLISECOND, 0);
 
-            shiftCal.set(Calendar.HOUR_OF_DAY, targetCal.get(Calendar.HOUR_OF_DAY));
-            shiftCal.set(Calendar.MINUTE, targetCal.get(Calendar.MINUTE));
-            shiftCal.set(Calendar.SECOND, 0);
-            shiftCal.set(Calendar.MILLISECOND, 0);
-
-            // Shift alarm scheduled exactly 1 minute before check-in time [2]
-            shiftCal.add(Calendar.MINUTE, -1);
-
-            // If the calculated alarm has already passed for today, push it forward to tomorrow
-            if (shiftCal.before(current)) {
-                shiftCal.add(Calendar.DAY_OF_YEAR, 1);
-            }
-
-            AlarmManager alarmManager = (AlarmManager) requireContext().getSystemService(Context.ALARM_SERVICE);
-            Intent intent = new Intent(requireContext(), CheckInAlarmReceiver.class);
-            PendingIntent pendingIntent = PendingIntent.getBroadcast(
-                    requireContext(),
-                    0,
-                    intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-            );
-
-            if (alarmManager != null) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    if (alarmManager.canScheduleExactAlarms()) {
-                        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, shiftCal.getTimeInMillis(), pendingIntent);
-                    } else {
-                        alarmManager.set(AlarmManager.RTC_WAKEUP, shiftCal.getTimeInMillis(), pendingIntent);
-                    }
-                } else {
-                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, shiftCal.getTimeInMillis(), pendingIntent);
-                }
-            }
+            cal.add(Calendar.MINUTE, minuteOffset);
+            return cal;
         } catch (Exception e) {
-            Log.e(TAG, "Failed to schedule near-time check-in alarm", e);
+            Log.e(TAG, "Error calculating calendar alarm bounds", e);
+        }
+        return null;
+    }
+
+    /**
+     * Schedules the three distinct system-level notifications and voice broadcasts [2].
+     */
+    private void scheduleShiftAlarms(String startTimeStr, String endTimeStr) {
+        if (startTimeStr == null || startTimeStr.isEmpty() || "N/A".equals(startTimeStr)) return;
+        
+        AlarmManager alarmManager = (AlarmManager) requireContext().getSystemService(Context.ALARM_SERVICE);
+        if (alarmManager == null) return;
+
+        Calendar current = Calendar.getInstance();
+
+        // Alarm 1: Near-In Reminder (1 minute before shift starts) [2]
+        Calendar nearInCal = getCalendarForTime(startTimeStr, -1);
+        if (nearInCal != null) {
+            if (nearInCal.before(current)) {
+                nearInCal.add(Calendar.DAY_OF_YEAR, 1);
+            }
+            setSystemAlarm(alarmManager, nearInCal.getTimeInMillis(), "about_to_check_in", 2001);
+        }
+
+        // Alarm 2: Late-In Reminder (Exactly 2 minutes after shift starts) [2]
+        // Only run if the employee has not checked in for today [2]
+        if (todayRecord == null || todayRecord.getCheckInTime() == null) {
+            Calendar lateInCal = getCalendarForTime(startTimeStr, 2);
+            if (lateInCal != null) {
+                if (lateInCal.before(current)) {
+                    lateInCal.add(Calendar.DAY_OF_YEAR, 1);
+                }
+                setSystemAlarm(alarmManager, lateInCal.getTimeInMillis(), "late_check_in", 2002);
+            }
+        }
+
+        // Alarm 3: Near-Out Reminder (2 minutes before shift ends) [2]
+        if (endTimeStr != null && !endTimeStr.isEmpty() && !"N/A".equals(endTimeStr)) {
+            Calendar nearOutCal = getCalendarForTime(endTimeStr, -2);
+            if (nearOutCal != null) {
+                if (nearOutCal.before(current)) {
+                    nearOutCal.add(Calendar.DAY_OF_YEAR, 1);
+                }
+                setSystemAlarm(alarmManager, nearOutCal.getTimeInMillis(), "about_to_check_out", 2003);
+            }
+        }
+    }
+
+    private void setSystemAlarm(AlarmManager alarmManager, long triggerAtMillis, String reminderType, int requestCode) {
+        Intent intent = new Intent(requireContext(), CheckInAlarmReceiver.class);
+        intent.putExtra("reminder_type", reminderType);
+        
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(
+                requireContext(),
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (alarmManager.canScheduleExactAlarms()) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+            } else {
+                alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+            }
+        } else {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
         }
     }
 
@@ -248,11 +287,17 @@ public class EmployeeCheckInFragment extends Fragment {
         if (todayRecord == null || (todayRecord.getCheckInTime() == null && todayRecord.isResumeRequested())) {
             
             boolean isTimeReached = TimeUtils.isTimeReached(shiftStart);
-            boolean canCheckInGate = isTimeReached || (todayRecord != null && todayRecord.isResumeRequested());
+            boolean isPastGrace = TimeUtils.isPastGracePeriod(shiftStart, 2); // 2-minute late checking [3]
+            boolean isResumeMode = todayRecord != null && todayRecord.isResumeRequested();
 
-            if (todayRecord != null && todayRecord.isResumeRequested()) {
+            if (isResumeMode) {
+                // If they requested resume, they are clear to check in [3]
                 updateButtonState(true, false, false);
                 binding.tvStatus.setText("Resume Mode: Ready to Check-In at " + locName);
+            } else if (isPastGrace) {
+                // Denied: Employee is late by > 2 mins and hasn't clicked Resume [3]
+                updateButtonState(false, false, false);
+                binding.tvStatus.setText("You are late. Please select Resume from the options menu to enable check-in.");
             } else if (!isTimeReached) {
                 updateButtonState(false, false, false);
                 binding.tvStatus.setText("Shift starts at " + shiftStart + ". Please wait.");
@@ -263,6 +308,7 @@ public class EmployeeCheckInFragment extends Fragment {
                 updateButtonState(true, false, false);
                 binding.tvStatus.setText("Status: Traveling Mode Enabled. Ready to Start.");
             } else {
+                // Safe check-in window (within the first 2 minutes of shift) [3]
                 updateButtonState(true, false, false);
                 binding.tvStatus.setText("Status: Ready to Check-In at " + locName);
             }
