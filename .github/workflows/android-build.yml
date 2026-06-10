@@ -30,13 +30,13 @@ jobs:
             -alias "${{ secrets.KEY_ALIAS }}" \
             -storepass "${{ secrets.KEYSTORE_PASSWORD }}"
 
-      # Setup a modern version of Gradle on the virtual runner machine
+      # Setup a modern version of Gradle on the virtual runner machine compatible with AGP 9.1.1
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 8.5
+          gradle-version: 8.10.2
 
-      # Generate a fresh, uncorrupted Gradle wrapper binary using Gradle 8.5
+      # Generate a fresh, uncorrupted Gradle wrapper binary using Gradle 8.10.2
       - name: Regenerate Gradle Wrapper
         run: gradle wrapper
 
