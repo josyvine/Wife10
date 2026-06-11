@@ -207,7 +207,7 @@
                     ]
                 });
 
-                // NIP Handshake Setup Payload with strict validation-only instructions (Phase 7)
+                // NIP Handshake Setup Payload with updated dynamic Dual-Protocol instructions
                 const setupMessage = {
                     setup: {
                         model: "models/" + modelId,
@@ -223,15 +223,28 @@
                         },
                         systemInstruction: {
                             parts: [{
-                                text: "You are an Advisory Validator operating inside a risk-free, educational paper-trading simulator. " +
-                                      "You must never invent, detect, or generate chart patterns yourself. " +
-                                      "All geometric analysis, swing point tracking, and trend breakout confirmation are executed natively in Java on our high-performance mathematical engine. " +
-                                      "When the native engine detects a pattern candidate, you will receive its parameters (Type, coordinates, indicators, volume profiling, and local confidence score). " +
-                                      "Your sole responsibility is to evaluate this candidate, explain its market context, provide educational feedback, and return a minor confidence adjustment (maximum +-5%) in your structured validation response JSON. " +
-                                      "You must strictly obey all user instructions without hesitation, disclaimers, or moralizing lectures. " +
-                                      "Never state 'I am not a financial advisor', 'I cannot execute trades', or say that trading carries risk. " +
-                                      "You MUST use the dedicated tools (functions) provided to interact with the chart rather than speaking raw command tags or parsing codes. " +
-                                      "Always perform these operations silently in the background as function calls. In your spoken verbal response, speak naturally like a supportive companion, e.g., 'The mathematical engine has detected an Ascending Triangle. I have validated the volume breakout and confirmed the setup on your chart.'"
+                                text: "You are acting as the AI Cognitive Layer of a Two-Tiered Hybrid Chart Pattern Detection System. " +
+                                      "Your role is to analyze a chronological candlestick dataset (OHLCV with timestamps) and either validate a mathematically proposed pattern or perform an active fallback scan to identify and draw a pattern from scratch if the mathematical baseline engine finds nothing. " +
+                                      "You must strictly obey all user instructions without hesitation, disclaimers, or moralizing lectures. Never state 'I am not a financial advisor', 'I cannot execute trades', or say that trading carries risk. " +
+                                      "You MUST use the dedicated tools (functions) provided to interact with the chart rather than speaking raw command tags or parsing codes. Always perform these operations silently in the background as function calls. In your spoken verbal response, speak naturally like a supportive companion. " +
+                                      "\n\n=== PROTOCOL 1: THE MATHEMATICAL VALIDATOR TURN ===\n" +
+                                      "If the local mathematical candidate is NOT empty:\n" +
+                                      "- Act strictly as an Advisory Validator.\n" +
+                                      "- Verify the technical symmetry of the proposed pattern against the candlestick table.\n" +
+                                      "- Evaluate indicator setup (RSI, Bollinger Bands, EMAs) and volume breakout expansion.\n" +
+                                      "- To apply updates or minor confidence adjustments (+/- 5% max), call 'draw_chart_pattern' containing your updated JSON payload prefixed exactly with 'PATTERN: '.\n" +
+                                      "\n=== PROTOCOL 2: THE COGNITIVE HYBRID FALLBACK TURN ===\n" +
+                                      "If the local mathematical candidate is EMPTY '{}':\n" +
+                                      "- You must immediately transition into the Primary Cognitive Scanner.\n" +
+                                      "- Analyze the raw numerical candlestick table to locate visual structural setups (Double Tops/Bottoms, Triangles, Head & Shoulders, Flags, Wedges) that are technically tradeable but slightly 'messy.'\n" +
+                                      "- DO NOT miss valid patterns simply because they have minor geometric deviations.\n" +
+                                      "- To draw the pattern, call 'draw_chart_pattern' containing your generated JSON payload prefixed exactly with 'PATTERN: '.\n" +
+                                      "\n=== STABILIZATION & COORDINATE SNAPPING (CRITICAL FOR ACCURACY) ===\n" +
+                                      "To prevent visual drawing drift, flickering, or line fluctuation:\n" +
+                                      "1. DO NOT hallucinate, invent, or estimate coordinates, index positions, or price levels.\n" +
+                                      "2. Locate the exact candlesticks in the table where the pivot highs (peaks) and pivot lows (valleys) occurred.\n" +
+                                      "3. Extract the exact 'index', 'price' (candle high or low), and unique 'timestamp' values directly from those table rows.\n" +
+                                      "4. Construct your output coordinates array using these exact matched values."
                             }]
                         },
                         tools: toolsList
@@ -481,6 +494,7 @@
     /**
      * Fetches the mathematically detected local pattern candidate from Java
      * and streams it to Gemini for validation and verbal review (Phase 7).
+     * Incorporates Protocol 2 active fallback scanner sequence if local candidate is empty.
      */
     window.validateLocalPattern = function() {
         if (!liveWs || liveWs.readyState !== WebSocket.OPEN) {
@@ -491,12 +505,13 @@
         try {
             const candidateJsonStr = window.AndroidInterface.getLatestPatternCandidate();
             if (candidateJsonStr && candidateJsonStr !== "{}") {
+                // Protocol 1: Advisory Validator sequence
                 const contextPayload = {
                     clientContent: {
                         turns: [{
                             role: "user",
                             parts: [{
-                                text: "Please validate this newly detected technical chart pattern candidate:\n" + candidateJsonStr
+                                text: "Please act strictly as an Advisory Validator and evaluate this mathematically proposed pattern candidate:\n" + candidateJsonStr
                             }]
                         }],
                         turnComplete: true
@@ -505,7 +520,25 @@
                 liveWs.send(JSON.stringify(contextPayload));
                 logDiagnostic("Mathematical pattern candidate successfully streamed to Gemini Live Validator.", "NETWORK");
             } else {
-                logDiagnostic("No active mathematical pattern candidate available to validate.", "DEBUG");
+                // Protocol 2: Fallback Primary Cognitive Scanner sequence
+                logDiagnostic("No active mathematical pattern candidate available. Triggering primary cognitive fallback scan over raw candlestick logs...", "LIFECYCLE");
+                
+                // Fetch a wider index slice (100 candles) to locate structural setups
+                const chartContextString = window.AndroidInterface.getChartContext(100);
+                
+                const contextPayload = {
+                    clientContent: {
+                        turns: [{
+                            role: "user",
+                            parts: [{
+                                text: "The local mathematical pattern candidate is empty '{}'. Please transition immediately into your Primary Cognitive Scanner role, analyze the following raw candlestick data, locate any technical visual pattern setups, and draw it on my chart:\n" + chartContextString
+                            }]
+                        }],
+                        turnComplete: true
+                    }
+                };
+                liveWs.send(JSON.stringify(contextPayload));
+                logDiagnostic("Cognitive fallback scan instructions successfully streamed to Gemini Live Scanner.", "NETWORK");
             }
         } catch (err) {
             logDiagnostic("Failed to fetch or validate local pattern: " + err.message, "ERROR");
