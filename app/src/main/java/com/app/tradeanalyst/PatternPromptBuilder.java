@@ -41,6 +41,7 @@ public class PatternPromptBuilder {
         sb.append("\n=== ANALYSIS AND EXECUTION INSTRUCTIONS ===\n");
         sb.append("Mathematically analyze the OHLC structural history to detect any active patterns (e.g., Double Bottoms, Head and Shoulders).\n");
         sb.append("If a pattern exists, identify the key swing point indices, evaluate the structural breakthrough, and calculate stop-loss and target prices.\n");
+        sb.append("You must populate the 'timestamp' field for each coordinate Point inside the 'points' array by matching the indices directly to the provided candlestick list timestamps. This prevents drawing drift.\n");
         sb.append("You MUST return your structured analysis prefixed exactly with 'PATTERN: ' followed by the raw JSON, without markdown code block wrappers (do not use ```json or ```).");
 
         return sb.toString();
@@ -88,16 +89,17 @@ public class PatternPromptBuilder {
         sb.append("=== CHRONOLOGICAL MARKET SERIES (OHLCV) ===\n");
         for (int i = 0; i < candles.size(); i++) {
             Candlestick c = candles.get(i);
-            sb.append(String.format("Index: %d | Open: %.2f | High: %.2f | Low: %.2f | Close: %.2f | Volume: %.2f\n",
-                i, c.open, c.high, c.low, c.close, c.volume));
+            sb.append(String.format("Index: %d | Open: %.2f | High: %.2f | Low: %.2f | Close: %.2f | Volume: %.2f | Timestamp: %d\n",
+                i, c.open, c.high, c.low, c.close, c.volume, c.timestamp));
         }
 
         sb.append("\n=== STRICT VALIDATION & EXPLANATION INSTRUCTIONS ===\n");
-        sb.append("You are acting strictly as an Advisory Validator. You must NOT detect or create patterns from scratch.\n");
+        sb.append("You are acting strictly as an Advisory Validator. However, if the local pattern geometry coordinates are empty '{}', you must perform a cognitive fallback scan over the raw candlestick list to identify any visual pattern setups.\n");
         sb.append("Analyze the provided local mathematical pattern candidate, verify its technical symmetry using the OHLCV data, and evaluate volume/indicator alignment.\n");
+        sb.append("You must populate the 'timestamp' field for each coordinate Point inside your 'points' array by matching the indices directly to the provided candlestick list timestamps. This prevents drawing drift.\n");
         sb.append("Return your final validated assessment as a JSON payload prefixed exactly with 'PATTERN: '.\n");
         sb.append("The JSON schema MUST conform to the updated ChartPatternResponse structure, containing: \n");
-        sb.append("1. An updated copy of the 'patterns' array incorporating any micro-adjustments to the validation explanation.\n");
+        sb.append("1. An updated copy of the 'patterns' array incorporating any micro-adjustments to the validation explanation and fully populated 'timestamp' fields.\n");
         sb.append("2. An updated 'summary' with a validation status (CONFIRMED, RETESTING, or INVALIDATED), reasons, explanation, and an optional AI-driven minor confidence adjustment (maximum +-5%).\n");
         sb.append("Ensure no markdown wrappers like ```json or ``` are used.");
 
