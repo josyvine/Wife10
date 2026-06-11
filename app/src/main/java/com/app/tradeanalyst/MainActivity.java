@@ -30,6 +30,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.switchmaterial.SwitchMaterial;
+import com.google.gson.Gson; // Added to handle serialization
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -89,6 +90,9 @@ public class MainActivity extends AppCompatActivity implements VoiceAssistantBot
 
     // Active bottom sheet reference
     private VoiceAssistantBottomSheet mActiveBottomSheet;
+
+    // Cached pattern response candidate
+    private ChartPatternResponse mLatestPatternCandidate = null;
 
     // Connection wrapper to bind persistent Foreground Service lifecycle
     private final ServiceConnection mConnection = new ServiceConnection() {
@@ -1056,7 +1060,13 @@ public class MainActivity extends AppCompatActivity implements VoiceAssistantBot
     }
 
     public String getLatestPatternCandidateJson() {
-        // Fallback default JSON to satisfy interface compilation and bridge queries
+        if (mLatestPatternCandidate != null) {
+            try {
+                return new Gson().toJson(mLatestPatternCandidate);
+            } catch (Exception e) {
+                Log.e("MainActivity", "Error serializing latest pattern candidate: " + e.getMessage());
+            }
+        }
         return "{}";
     }
 
@@ -1070,9 +1080,92 @@ public class MainActivity extends AppCompatActivity implements VoiceAssistantBot
 
         mExecutor.execute(() -> {
             try {
-                // Hook to execute the mathematical detection pipeline (Option B files)
-                // Evaluates swing points, checks breakouts, and coordinates invalidation patterns.
-                Log.d("MainActivity", "Local pattern engine scanning process executed on background thread.");
+                // 1. Detect Swing Points (Peaks and Troughs)
+                // Left strength: 5, Right strength: 5, Proximity threshold: 3
+                List<SwingPoint> swingPoints = SwingEngine.detectSwingPoints(mCandles, 5, 5, 3);
+                if (swingPoints == null || swingPoints.isEmpty()) {
+                    mLatestPatternCandidate = null;
+                    return;
+                }
+
+                // 2. Initialize the 19 mathematical pattern detectors
+                List<BasePatternDetector> detectors = new ArrayList<>();
+                detectors.add(new ChannelDetector());
+                detectors.add(new FallingWedgeDetector());
+                detectors.add(new RectangleDetector());
+                detectors.add(new DoubleTopDetector());
+                detectors.add(new RoundingTopDetector());
+                detectors.add(new InverseHeadAndShouldersDetector());
+                detectors.add(new DescendingTriangleDetector());
+                detectors.add(new DoubleBottomDetector());
+                detectors.add(new TripleBottomDetector());
+                detectors.add(new SymmetricalTriangleDetector());
+                detectors.add(new CupAndHandleDetector());
+                detectors.add(new BearFlagDetector());
+                detectors.add(new TripleTopDetector());
+                detectors.add(new RoundingBottomDetector());
+                detectors.add(new RisingWedgeDetector());
+                detectors.add(new AscendingTriangleDetector());
+                detectors.add(new PennantDetector());
+                detectors.add(new BullFlagDetector());
+                detectors.add(new HeadAndShouldersDetector());
+
+                // 3. Scan the historical series and collect valid pattern matches
+                List<ChartPattern> detectedPatterns = new ArrayList<>();
+                for (BasePatternDetector detector : detectors) {
+                    try {
+                        List<ChartPattern> matches = detector.detect(mCandles, swingPoints);
+                        if (matches != null && !matches.isEmpty()) {
+                            detectedPatterns.addAll(matches);
+                        }
+                    } catch (Exception ex) {
+                        Log.e("MainActivity", "Failed scan execution for " + detector.getClass().getSimpleName(), ex);
+                    }
+                }
+
+                // 4. Identify and cache the single highest-confidence candidate
+                if (!detectedPatterns.isEmpty()) {
+                    ChartPattern highestConfidencePattern = null;
+                    double maxConfidence = -1.0;
+
+                    for (ChartPattern pattern : detectedPatterns) {
+                        if (pattern.getConfidence() > maxConfidence) {
+                            maxConfidence = pattern.getConfidence();
+                            highestConfidencePattern = pattern;
+                        }
+                    }
+
+                    if (highestConfidencePattern != null) {
+                        List<ChartPattern> patternWrapper = new ArrayList<>();
+                        patternWrapper.add(highestConfidencePattern);
+
+                        String recommendation = "HOLD";
+                        if (highestConfidencePattern.getBias() != null) {
+                            if (highestConfidencePattern.getBias().equalsIgnoreCase("BULLISH")) {
+                                recommendation = "BUY";
+                            } else if (highestConfidencePattern.getBias().equalsIgnoreCase("BEARISH")) {
+                                recommendation = "SELL";
+                            }
+                        }
+
+                        ChartPatternSummary summary = new ChartPatternSummary(
+                            highestConfidencePattern.getType(),
+                            highestConfidencePattern.getConfidence(),
+                            recommendation
+                        );
+
+                        ChartPatternResponse response = new ChartPatternResponse(patternWrapper, summary);
+                        response.setLookback(mCandles.size());
+                        mLatestPatternCandidate = response;
+                        
+                        Log.d("MainActivity", "Cached winning pattern candidate: " 
+                            + highestConfidencePattern.getType() 
+                            + " | Confidence: " + highestConfidencePattern.getConfidence() + "%");
+                    }
+                } else {
+                    mLatestPatternCandidate = null;
+                }
+
             } catch (Exception e) {
                 Log.e("MainActivity", "Local mathematical scan loop execution failure", e);
             }
