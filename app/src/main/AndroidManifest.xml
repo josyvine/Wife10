@@ -43,6 +43,7 @@
         android:label="@string/app_name"
         android:roundIcon="@drawable/wife"
         android:supportsRtl="true"
+        android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.MyApplication">
 
         <!-- Splash Launcher Screen -->
@@ -58,7 +59,12 @@
 
         <activity android:name=".MainActivity" android:exported="false" />
         <activity android:name=".DeviceDiscoveryActivity" android:exported="false" />
-        <activity android:name=".ChatActivity" android:exported="false" />
+        
+        <activity 
+            android:name=".ChatActivity" 
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+            
         <activity android:name=".VoiceCallActivity" android:exported="false" />
         <activity android:name=".VideoCallActivity" android:exported="false" />
         <activity android:name=".FileTransferActivity" android:exported="false" />
