@@ -1,8 +1,15 @@
 package com.wife.app;
 
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.os.Build;
 import android.util.Log;
+
+import androidx.core.app.NotificationCompat;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -116,11 +123,72 @@ public class MessageReceiver implements Runnable {
                 // Notify Active Chat Screen via Local Singleton / Broadcast
                 ChatManager.getInstance(context).notifyMessageReceived(entity);
                 WifeLogger.log(TAG, "Dispatched notification of text message reception to active ChatManager observers.");
+
+                // Check if the Chat Screen is closed/inactive to trigger local alarms and badging
+                boolean isChatOpen = ChatManager.getInstance(context).hasListeners();
+                WifeLogger.log(TAG, "Is ChatActivity currently active in foreground: " + isChatOpen);
+                
+                if (!isChatOpen) {
+                    WifeLogger.log(TAG, "Chat screen is closed. Incrementing unread badge counts inside preferences.");
+                    SharedPreferences prefs = context.getSharedPreferences("WifeSettings", Context.MODE_PRIVATE);
+                    int unread = prefs.getInt("unread_count", 0);
+                    prefs.edit().putInt("unread_count", unread + 1).apply();
+
+                    // Retrieve custom peer display name or fall back to Sender ID
+                    String senderDisplayName = json.has("senderName") ? json.get("senderName").getAsString() : "Offline Peer";
+                    WifeLogger.log(TAG, "Triggering high-priority system notification alert for message.");
+                    sendSystemNotification(senderDisplayName, text);
+                }
+
             } catch (Exception e) {
                 WifeLogger.log(TAG, "Failed to parse or process incoming text message packet: " + e.getMessage(), e);
             }
         } else {
             WifeLogger.log(TAG, "Unmatched text server packet type ignored: " + valType);
+        }
+    }
+
+    private void sendSystemNotification(String senderName, String messageText) {
+        try {
+            String channelId = "WifeChatChannel";
+            NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (notificationManager == null) return;
+
+            // Create notification channel on Android Oreo (API 26) and above
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationChannel channel = new NotificationChannel(
+                        channelId,
+                        "Wife Offline Chat",
+                        NotificationManager.IMPORTANCE_HIGH
+                );
+                channel.setDescription("Local Offline Chat Notifications");
+                channel.enableVibration(true);
+                notificationManager.createNotificationChannel(channel);
+            }
+
+            Intent chatIntent = new Intent(context, ChatActivity.class);
+            chatIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            
+            PendingIntent pendingIntent = PendingIntent.getActivity(
+                    context,
+                    0,
+                    chatIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+            );
+
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(context, channelId)
+                    .setContentTitle(senderName)
+                    .setContentText(messageText)
+                    .setSmallIcon(android.R.drawable.stat_notify_chat)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setContentIntent(pendingIntent)
+                    .setDefaults(NotificationCompat.DEFAULT_ALL)
+                    .setAutoCancel(true);
+
+            notificationManager.notify(2002, builder.build());
+            WifeLogger.log(TAG, "System chat alert notification dispatched successfully.");
+        } catch (Exception e) {
+            WifeLogger.log(TAG, "Failed creating or dispatching system chat alert: " + e.getMessage(), e);
         }
     }
 }
