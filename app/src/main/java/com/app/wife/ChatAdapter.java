@@ -97,6 +97,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         final String cleanFilename = getCleanFileName(filename);
         final File localFile = getLocalFile(filename);
+        
+        // Define a combined, effectively final string to resolve lambda compiler scoping restrictions
+        final String labelWithFileSize = cleanFilename + fileSize;
 
         if (holder instanceof SentViewHolder) {
             SentViewHolder h = (SentViewHolder) holder;
@@ -105,15 +108,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 
                 // Show standard preview block and clear text
                 if (rawText.startsWith("[FILE]:")) {
-                    h.tvText.setText("📁 Document: " + cleanFilename + fileSize);
+                    h.tvText.setText("📁 Document: " + labelWithFileSize);
                 } else if (rawText.startsWith("[IMAGE]:")) {
-                    h.tvText.setText("📷 Image: " + cleanFilename + fileSize);
+                    h.tvText.setText("📷 Image: " + labelWithFileSize);
                 } else if (rawText.startsWith("[VIDEO]:")) {
-                    h.tvText.setText("🎥 Video: " + cleanFilename + fileSize);
+                    h.tvText.setText("🎥 Video: " + labelWithFileSize);
                 } else if (rawText.startsWith("[AUDIO]:")) {
-                    h.tvText.setText("🎤 Voice Note: " + cleanFilename + fileSize);
-                    h.tvText.setTag("🎤 Voice Note: " + cleanFilename + fileSize);
-                    h.itemView.setOnClickListener(v -> playAudio(v.getContext(), localFile, h.tvText, cleanFilename + fileSize));
+                    h.tvText.setText("🎤 Voice Note: " + labelWithFileSize);
+                    h.tvText.setTag("🎤 Voice Note: " + labelWithFileSize);
+                    h.itemView.setOnClickListener(v -> playAudio(v.getContext(), localFile, h.tvText, labelWithFileSize));
                 }
 
                 // Render dynamic memory-safe image/video thumbnail card
@@ -147,15 +150,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 h.ivSave.setOnClickListener(v -> saveReceivedFileToPublic(v.getContext(), finalFilename));
 
                 if (rawText.startsWith("[FILE]:")) {
-                    h.tvText.setText("📁 Document: " + cleanFilename + fileSize);
+                    h.tvText.setText("📁 Document: " + labelWithFileSize);
                 } else if (rawText.startsWith("[IMAGE]:")) {
-                    h.tvText.setText("📷 Image: " + cleanFilename + fileSize);
+                    h.tvText.setText("📷 Image: " + labelWithFileSize);
                 } else if (rawText.startsWith("[VIDEO]:")) {
-                    h.tvText.setText("🎥 Video: " + cleanFilename + fileSize);
+                    h.tvText.setText("🎥 Video: " + labelWithFileSize);
                 } else if (rawText.startsWith("[AUDIO]:")) {
-                    h.tvText.setText("🎤 Voice Note: " + cleanFilename + fileSize);
-                    h.tvText.setTag("🎤 Voice Note: " + cleanFilename + fileSize);
-                    h.itemView.setOnClickListener(v -> playAudio(v.getContext(), localFile, h.tvText, cleanFilename + fileSize));
+                    h.tvText.setText("🎤 Voice Note: " + labelWithFileSize);
+                    h.tvText.setTag("🎤 Voice Note: " + labelWithFileSize);
+                    h.itemView.setOnClickListener(v -> playAudio(v.getContext(), localFile, h.tvText, labelWithFileSize));
                 }
 
                 // Render dynamic memory-safe image/video thumbnail card
