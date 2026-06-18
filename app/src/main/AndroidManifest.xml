@@ -80,6 +80,9 @@
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".CallHistoryActivity" android:exported="false" />
         <activity android:name=".ConnectionStatusActivity" android:exported="false" />
+        
+        <!-- Interactive In-App Media Viewer for Images and Videos -->
+        <activity android:name=".MediaViewerActivity" android:exported="false" />
 
         <!-- Camera FileProvider for sharing file paths securely across system applications -->
         <provider
