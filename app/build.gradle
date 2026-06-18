@@ -140,6 +140,9 @@ dependencies {
   implementation(libs.androidx.webkit)
   implementation(libs.androidx.swiperefreshlayout)
   implementation(libs.material)
+
+  // LZ4-Java high-speed compression dependency added directly
+  implementation "org.lz4:lz4-java:1.8.0"
 }
 
 tasks.register("copyApkToBuildOutputs") {
