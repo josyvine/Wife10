@@ -33,6 +33,12 @@ public class AudioCaptureManager {
     private AcousticEchoCanceler echoCanceler;
     private NoiseSuppressor noiseSuppressor;
 
+    // Interface callback to notify when WAV file generation is completed on background thread
+    public interface OnRecordingCompleteListener {
+        void onRecordingComplete(File outputFile);
+        void onRecordingFailed(String error);
+    }
+
     public static AudioCaptureManager getInstance(Context context) {
         if (instance == null) {
             synchronized (AudioCaptureManager.class) {
@@ -120,9 +126,26 @@ public class AudioCaptureManager {
 
     @SuppressLint("MissingPermission")
     public synchronized void startFileRecording(final File outputFile) {
+        startFileRecording(outputFile, null);
+    }
+
+    @SuppressLint("MissingPermission")
+    public synchronized void startFileRecording(final File outputFile, final OnRecordingCompleteListener listener) {
         WifeLogger.log(TAG, "startFileRecording() invoked. Target File: " + outputFile.getAbsolutePath());
         if (isRecording) {
             WifeLogger.log(TAG, "startFileRecording() aborted: Capture thread is already active.");
+            if (listener != null) {
+                listener.onRecordingFailed("Capture thread is already active.");
+            }
+            return;
+        }
+
+        // Verify that microphone permission is granted before starting
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            WifeLogger.log(TAG, "Cannot record: RECORD_AUDIO permission has not been granted.");
+            if (listener != null) {
+                listener.onRecordingFailed("RECORD_AUDIO permission not granted.");
+            }
             return;
         }
 
@@ -139,12 +162,18 @@ public class AudioCaptureManager {
             );
         } catch (Exception initEx) {
             WifeLogger.log(TAG, "Exception thrown inside AudioRecord constructor: " + initEx.getMessage(), initEx);
+            if (listener != null) {
+                listener.onRecordingFailed(initEx.getMessage());
+            }
             return;
         }
 
         if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
             Log.e(TAG, "AudioRecord state is not initialized.");
             WifeLogger.log(TAG, "AudioRecord state check failed: STATE_UNINITIALIZED. Recording cannot start.");
+            if (listener != null) {
+                listener.onRecordingFailed("AudioRecord state check failed: STATE_UNINITIALIZED.");
+            }
             return;
         }
 
@@ -156,6 +185,9 @@ public class AudioCaptureManager {
             audioRecord.startRecording();
         } catch (Exception startEx) {
             WifeLogger.log(TAG, "Failed starting microphone recording stream: " + startEx.getMessage(), startEx);
+            if (listener != null) {
+                listener.onRecordingFailed(startEx.getMessage());
+            }
             return;
         }
 
@@ -175,6 +207,8 @@ public class AudioCaptureManager {
                         if (readBytes > 0) {
                             os.write(buffer, 0, readBytes);
                             totalAudioLen += readBytes;
+                        } else {
+                            WifeLogger.log(TAG, "AudioRecord read returned zero or negative status: " + readBytes);
                         }
                     }
                     os.flush();
@@ -201,11 +235,23 @@ public class AudioCaptureManager {
                     tempPcmFile.delete();
                 }
                 
-                WifeLogger.log(TAG, "WAV voice note captured successfully: " + outputFile.getAbsolutePath() + " | Size: " + outputFile.length() + " bytes");
+                long finalSize = outputFile.length();
+                WifeLogger.log(TAG, "WAV voice note captured successfully: " + outputFile.getAbsolutePath() + " | Size: " + finalSize + " bytes");
+
+                if (listener != null) {
+                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                        listener.onRecordingComplete(outputFile);
+                    });
+                }
 
             } catch (Exception e) {
                 Log.e(TAG, "WAV recording stream failed: " + e.getMessage());
                 WifeLogger.log(TAG, "WAV recording thread encountered an exception: " + e.getMessage(), e);
+                if (listener != null) {
+                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                        listener.onRecordingFailed(e.getMessage());
+                    });
+                }
             }
         });
         recordThread.start();
@@ -298,7 +344,11 @@ public class AudioCaptureManager {
         isRecording = false;
         if (recordThread != null) {
             WifeLogger.log(TAG, "Interrupting active audio capture thread.");
-            recordThread.interrupt();
+            try {
+                recordThread.join(2000); // Block wait to let the background thread finalize the header
+            } catch (InterruptedException e) {
+                WifeLogger.log(TAG, "Interrupted while joining recordThread: " + e.getMessage(), e);
+            }
             recordThread = null;
         }
         if (audioRecord != null) {
