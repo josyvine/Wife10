@@ -8,6 +8,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.media.MediaPlayer;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
@@ -101,17 +102,27 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // Define a combined, effectively final string to resolve lambda compiler scoping restrictions
         final String labelWithFileSize = cleanFilename + fileSize;
 
+        // Dynamic visual override if an image was mistakenly sent with a [FILE] tag
+        String ext = "";
+        int dotIdx = filename.lastIndexOf('.');
+        if (dotIdx > 0) {
+            ext = filename.substring(dotIdx + 1).toLowerCase(Locale.US);
+        }
+        boolean isVisualImage = rawText.startsWith("[IMAGE]:") || 
+                               (rawText.startsWith("[FILE]:") && (ext.equals("jpg") || ext.equals("jpeg") || ext.equals("png") || ext.equals("webp") || ext.equals("gif")));
+        boolean isVisualVideo = rawText.startsWith("[VIDEO]:");
+
         if (holder instanceof SentViewHolder) {
             SentViewHolder h = (SentViewHolder) holder;
             if (isAttachment) {
                 h.itemView.setOnClickListener(null); // Clear previous item click
                 
                 // Show standard preview block and clear text
-                if (rawText.startsWith("[FILE]:")) {
+                if (rawText.startsWith("[FILE]:") && !isVisualImage) {
                     h.tvText.setText("📁 Document: " + labelWithFileSize);
-                } else if (rawText.startsWith("[IMAGE]:")) {
+                } else if (isVisualImage) {
                     h.tvText.setText("📷 Image: " + labelWithFileSize);
-                } else if (rawText.startsWith("[VIDEO]:")) {
+                } else if (isVisualVideo) {
                     h.tvText.setText("🎥 Video: " + labelWithFileSize);
                 } else if (rawText.startsWith("[AUDIO]:")) {
                     h.tvText.setText("🎤 Voice Note: " + labelWithFileSize);
@@ -119,17 +130,23 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     h.itemView.setOnClickListener(v -> playAudio(v.getContext(), localFile, h.tvText, labelWithFileSize));
                 }
 
-                // Render dynamic memory-safe image/video thumbnail card
+                // Render dynamic memory-safe image/video thumbnail card using native generator
                 if (h.ivImage != null) {
-                    if ((rawText.startsWith("[IMAGE]:") || rawText.startsWith("[VIDEO]:")) && localFile.exists()) {
+                    if ((isVisualImageOrVideo(rawText) || isVisualImageFile(filename)) && localFile.exists()) {
                         h.ivImage.setVisibility(View.VISIBLE);
-                        Bitmap thumb = getThumbnail(localFile, 200, 200);
+                        Bitmap thumb = null;
+                        if (rawText.startsWith("[VIDEO]:")) {
+                            thumb = ThumbnailGenerator.getVideoThumbnail(localFile);
+                        } else {
+                            thumb = ThumbnailGenerator.getImageThumbnail(localFile, 200, 200);
+                        }
+
                         if (thumb != null) {
                             h.ivImage.setImageBitmap(thumb);
                         } else {
                             h.ivImage.setImageResource(android.R.drawable.ic_menu_gallery);
                         }
-                        h.ivImage.setOnClickListener(v -> viewImage(v.getContext(), localFile));
+                        h.ivImage.setOnClickListener(v -> viewImage(v.getContext(), localFile, finalFilenameOnImageClick(rawText, cleanFilename)));
                     } else {
                         h.ivImage.setVisibility(View.GONE);
                     }
@@ -149,11 +166,11 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 h.ivSave.setVisibility(View.VISIBLE);
                 h.ivSave.setOnClickListener(v -> saveReceivedFileToPublic(v.getContext(), finalFilename));
 
-                if (rawText.startsWith("[FILE]:")) {
+                if (rawText.startsWith("[FILE]:") && !isVisualImage) {
                     h.tvText.setText("📁 Document: " + labelWithFileSize);
-                } else if (rawText.startsWith("[IMAGE]:")) {
+                } else if (isVisualImage) {
                     h.tvText.setText("📷 Image: " + labelWithFileSize);
-                } else if (rawText.startsWith("[VIDEO]:")) {
+                } else if (isVisualVideo) {
                     h.tvText.setText("🎥 Video: " + labelWithFileSize);
                 } else if (rawText.startsWith("[AUDIO]:")) {
                     h.tvText.setText("🎤 Voice Note: " + labelWithFileSize);
@@ -161,17 +178,23 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     h.itemView.setOnClickListener(v -> playAudio(v.getContext(), localFile, h.tvText, labelWithFileSize));
                 }
 
-                // Render dynamic memory-safe image/video thumbnail card
+                // Render dynamic memory-safe image/video thumbnail card using native generator
                 if (h.ivImage != null) {
-                    if ((rawText.startsWith("[IMAGE]:") || rawText.startsWith("[VIDEO]:")) && localFile.exists()) {
+                    if ((isVisualImageOrVideo(rawText) || isVisualImageFile(filename)) && localFile.exists()) {
                         h.ivImage.setVisibility(View.VISIBLE);
-                        Bitmap thumb = getThumbnail(localFile, 200, 200);
+                        Bitmap thumb = null;
+                        if (rawText.startsWith("[VIDEO]:")) {
+                            thumb = ThumbnailGenerator.getVideoThumbnail(localFile);
+                        } else {
+                            thumb = ThumbnailGenerator.getImageThumbnail(localFile, 200, 200);
+                        }
+
                         if (thumb != null) {
                             h.ivImage.setImageBitmap(thumb);
                         } else {
                             h.ivImage.setImageResource(android.R.drawable.ic_menu_gallery);
                         }
-                        h.ivImage.setOnClickListener(v -> viewImage(v.getContext(), localFile));
+                        h.ivImage.setOnClickListener(v -> viewImage(v.getContext(), localFile, finalFilenameOnImageClick(rawText, cleanFilename)));
                     } else {
                         h.ivImage.setVisibility(View.GONE);
                     }
@@ -192,6 +215,23 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             showContextMenu(v, msg, position);
             return true;
         });
+    }
+
+    private boolean isVisualImageOrVideo(String rawText) {
+        return rawText.startsWith("[IMAGE]:") || rawText.startsWith("[VIDEO]:");
+    }
+
+    private boolean isVisualImageFile(String filename) {
+        String ext = "";
+        int dotIdx = filename.lastIndexOf('.');
+        if (dotIdx > 0) {
+            ext = filename.substring(dotIdx + 1).toLowerCase(Locale.US);
+        }
+        return ext.equals("jpg") || ext.equals("jpeg") || ext.equals("png") || ext.equals("webp") || ext.equals("gif");
+    }
+
+    private String finalFilenameOnImageClick(String rawText, String cleanFilename) {
+        return cleanFilename;
     }
 
     private String getCleanFileName(String rawName) {
@@ -268,7 +308,15 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 subFolder = "misc";
                 break;
         }
-        File rootDir = new File(Environment.getExternalStorageDirectory(), "wife shared");
+
+        File rootDir;
+        // Synchronized: Must match the public Download/ directory fallback of FileReceiver on Android 11+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            rootDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "wife shared");
+        } else {
+            rootDir = new File(Environment.getExternalStorageDirectory(), "wife shared");
+        }
+
         return new File(new File(rootDir, subFolder), filename);
     }
 
@@ -342,7 +390,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         currentlyPlayingPath = null;
     }
 
-    private void viewImage(Context context, File imageFile) {
+    private void viewImage(Context context, File imageFile, String filename) {
         try {
             Uri fileUri = FileProvider.getUriForFile(
                     context,
@@ -350,12 +398,24 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     imageFile
             );
             Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(fileUri, "image/*");
+
+            // Sniff file extension to dynamically resolve matching MIME type (Fixes Glitch 5)
+            String mimeType = "image/*";
+            String ext = "";
+            int idx = filename.lastIndexOf('.');
+            if (idx > 0) {
+                ext = filename.substring(idx + 1).toLowerCase(Locale.US);
+            }
+            if (ext.equals("mp4") || ext.equals("mkv") || ext.equals("avi") || ext.equals("mov") || ext.equals("3gp") || ext.equals("webm")) {
+                mimeType = "video/*";
+            }
+
+            intent.setDataAndType(fileUri, mimeType);
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             context.startActivity(intent);
         } catch (Exception e) {
-            WifeLogger.log("ChatAdapter", "Failed launching photo system viewer: " + e.getMessage());
-            Toast.makeText(context, "No compatible image viewer found.", Toast.LENGTH_SHORT).show();
+            WifeLogger.log("ChatAdapter", "Failed launching media system viewer: " + e.getMessage());
+            Toast.makeText(context, "No compatible media viewer found.", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -409,7 +469,14 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 break;
         }
 
-        File targetFile = new File(new File(new File(Environment.getExternalStorageDirectory(), "wife shared"), subFolder), filename);
+        File rootDir;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            rootDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "wife shared");
+        } else {
+            rootDir = new File(Environment.getExternalStorageDirectory(), "wife shared");
+        }
+
+        File targetFile = new File(new File(rootDir, subFolder), filename);
         
         if (targetFile.exists()) {
             WifeLogger.log("ChatAdapter", "Verified file existence inside public folder: " + targetFile.getAbsolutePath());
