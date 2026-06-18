@@ -35,4 +35,23 @@ public final class Constants {
     
     public static final String EXTRA_CALL_SENDER = "EXTRA_CALL_SENDER";
     public static final String EXTRA_CALL_IP = "EXTRA_CALL_IP";
+
+    // --- File Transfer Actions ---
+    public static final String ACTION_START_TRANSFER = "com.wife.app.ACTION_START_TRANSFER";
+    public static final String ACTION_PAUSE_TRANSFER = "com.wife.app.ACTION_PAUSE_TRANSFER";
+    public static final String ACTION_RESUME_TRANSFER = "com.wife.app.ACTION_RESUME_TRANSFER";
+    public static final String ACTION_CANCEL_TRANSFER = "com.wife.app.ACTION_CANCEL_TRANSFER";
+    
+    // --- File Transfer Progress Broadcast Actions ---
+    public static final String ACTION_TRANSFER_PROGRESS = "com.wife.app.ACTION_TRANSFER_PROGRESS";
+    public static final String ACTION_TRANSFER_COMPLETE = "com.wife.app.ACTION_TRANSFER_COMPLETE";
+    public static final String ACTION_TRANSFER_ERROR = "com.wife.app.ACTION_TRANSFER_ERROR";
+
+    // --- File Transfer Progress Extras Keys ---
+    public static final String EXTRA_BYTES_TRANSFERRED = "com.wife.app.EXTRA_BYTES_TRANSFERRED";
+    public static final String EXTRA_TOTAL_BYTES = "com.wife.app.EXTRA_TOTAL_BYTES";
+    public static final String EXTRA_FILE_NAME = "com.wife.app.EXTRA_FILE_NAME";
+    public static final String EXTRA_TRANSFER_SPEED = "com.wife.app.EXTRA_TRANSFER_SPEED";
+    public static final String EXTRA_FILE_INDEX = "com.wife.app.EXTRA_FILE_INDEX";
+    public static final String EXTRA_ERROR_MESSAGE = "com.wife.app.EXTRA_ERROR_MESSAGE";
 }
