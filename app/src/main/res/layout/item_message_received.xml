@@ -76,10 +76,11 @@
                     <!-- Current / Duration Progress Output -->
                     <TextView
                         android:id="@+id/tvAudioProgress"
-                        android:layout_width="wrap_content"
+                        android:layout_width="45dp"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="4dp"
                         android:text="00:00"
+                        android:gravity="center_vertical|start"
                         android:textColor="#888888"
                         android:textSize="11sp" />
 
