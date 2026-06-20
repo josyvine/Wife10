@@ -621,6 +621,10 @@ public class ChatActivity extends AppCompatActivity implements ChatManager.Messa
                     if (removed) {
                         adapter.notifyDataSetChanged();
                         scrollToBottom();
+
+                        // Rewrite the local backup file immediately to remove this unsent message (and resolve the unsend recovery glitch)
+                        BackupManager.backupChat(this, peerDeviceId, selfId);
+                        WifeLogger.log(TAG, "Local JSON backup overwritten successfully after active unsend event.");
                     }
                 } catch (Exception e) {
                     WifeLogger.log(TAG, "Error executing real-time unsend UI refresh: " + e.getMessage(), e);
