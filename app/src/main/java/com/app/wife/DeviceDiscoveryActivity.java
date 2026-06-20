@@ -3,6 +3,8 @@ package com.wife.app;
 import android.net.wifi.p2p.WifiP2pDevice;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.os.Bundle;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.Toast;
 
@@ -92,6 +94,42 @@ public class DeviceDiscoveryActivity extends AppCompatActivity implements
         });
         binding.rvDiscoveredDevices.setLayoutManager(new LinearLayoutManager(this));
         binding.rvDiscoveredDevices.setAdapter(adapter);
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        // Dynamically add a Group Hosting option to the toolbar to resolve 1-to-N group limits
+        menu.add(0, 1, 0, "Host Group")
+            .setIcon(android.R.drawable.ic_menu_add)
+            .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == 1) {
+            WifeLogger.log(TAG, "User triggered Host Group menu item. Pre-creating Autonomous P2P Group.");
+            createAutonomousP2PGroup();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    private void createAutonomousP2PGroup() {
+        Toast.makeText(this, "Pre-creating stable P2P Group AP...", Toast.LENGTH_SHORT).show();
+        wifiDirectManager.createGroup(new WifiP2pManager.ActionListener() {
+            @Override
+            public void onSuccess() {
+                WifeLogger.log(TAG, "Autonomous P2P Group pre-creation command posted successfully.");
+                Toast.makeText(DeviceDiscoveryActivity.this, "Group pre-created. Clients can now join.", Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onFailure(int reason) {
+                WifeLogger.log(TAG, "Autonomous P2P Group pre-creation failed. Reason: " + reason);
+                Toast.makeText(DeviceDiscoveryActivity.this, "Group pre-creation failed. Reason: " + reason, Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     @Override
