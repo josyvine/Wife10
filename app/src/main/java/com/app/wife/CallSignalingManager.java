@@ -135,6 +135,15 @@ public class CallSignalingManager {
         });
     }
 
+    // Parallel decoupled 5-way Group Call Signaling Broadcaster helper
+    public void broadcastGroupSignal(final List<String> peerIps, final String type) {
+        if (peerIps == null || peerIps.isEmpty()) return;
+        WifeLogger.log(TAG, "broadcastGroupSignal() invoked. Action: " + type + " | Target IP count: " + peerIps.size());
+        for (String ip : peerIps) {
+            sendSignal(ip, type);
+        }
+    }
+
     public void handleReceivedSignal(String action, JsonObject payload, String peerIp) {
         Log.d(TAG, "Handling received signal: " + action + " from peer " + peerIp);
         WifeLogger.log(TAG, "handleReceivedSignal() invoked. Action: " + action + " | Peer IP: " + peerIp);
@@ -177,6 +186,16 @@ public class CallSignalingManager {
             videoIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(videoIntent);
             WifeLogger.log(TAG, "VideoCallActivity incoming call background intent dispatched successfully.");
+        } else if (Constants.SIGNAL_GROUP_CALL_REQUEST.equals(action)) {
+            WifeLogger.log(TAG, "Background event matched: 'SIGNAL_GROUP_CALL_REQUEST'. Creating GroupVideoCallActivity calling intent.");
+            Intent groupIntent = new Intent(context, GroupVideoCallActivity.class);
+            groupIntent.putExtra(Constants.EXTRA_PEER_IP, peerIp);
+            groupIntent.putExtra(Constants.EXTRA_PEER_NAME, peerName);
+            groupIntent.putExtra("PEER_PROFILE_PHOTO", base64Photo);
+            groupIntent.putExtra("IS_INBOUND", true);
+            groupIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(groupIntent);
+            WifeLogger.log(TAG, "GroupVideoCallActivity incoming call background intent dispatched successfully.");
         } else {
             WifeLogger.log(TAG, "Unprocessed background signaling control code ignored: " + action);
         }
