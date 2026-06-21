@@ -17,6 +17,7 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,8 +46,8 @@ public class GroupCallManager {
     private Thread audioMixerThread;
     private Thread peerPruningThread;
 
-    // Thread-safe map tracking peer unique ID hashes to their respective Audio Jitter Queues
-    private final Map<Integer, LinkedBlockingQueue<short[]>> peerAudioQueues = new ConcurrentHashMap<>();
+    // Parallel multi-track dynamic mapping routing peer unique IDs to their dedicated hardware AudioTracks
+    private final Map<Integer, AudioTrack> peerAudioTracks = new ConcurrentHashMap<>();
     // Thread-safe map tracking peer unique ID hashes to their last active timestamps
     private final Map<Integer, Long> peerLastSeen = new ConcurrentHashMap<>();
 
@@ -91,16 +92,14 @@ public class GroupCallManager {
         this.audioSeq = 0;
         this.videoSeq = 0;
         
-        peerAudioQueues.clear();
+        peerAudioTracks.clear();
         peerLastSeen.clear();
 
         try {
             acquireMulticastLock();
             initializeSockets();
-            initializeAudioTrack();
             
             startReceiverThreads();
-            startAudioMixerThread();
             startPeerPruningThread();
             
             WifeLogger.log(TAG, "Parallel 5-way P2P group call system pipelines successfully loaded.");
@@ -137,30 +136,6 @@ public class GroupCallManager {
         videoSocket.setReuseAddress(true);
         
         WifeLogger.log(TAG, "UDP sockets successfully bound to ports " + Constants.OFF_PORT_GROUP_AUDIO + " (Audio) and " + Constants.OFF_PORT_GROUP_VIDEO + " (Video).");
-    }
-
-    private void initializeAudioTrack() {
-        int minBufferSize = AudioTrack.getMinBufferSize(8000, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
-        audioTrack = new AudioTrack.Builder()
-                .setAudioAttributes(new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build())
-                .setAudioFormat(new AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(8000)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                        .build())
-                .setBufferSizeInBytes(minBufferSize)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build();
-
-        if (audioTrack.getState() == AudioTrack.STATE_INITIALIZED) {
-            audioTrack.play();
-            WifeLogger.log(TAG, "Physical AudioTrack output stream initialized and playing.");
-        } else {
-            WifeLogger.log(TAG, "AudioTrack state check failed: STATE_UNINITIALIZED.");
-        }
     }
 
     private void startReceiverThreads() {
@@ -228,15 +203,17 @@ public class GroupCallManager {
         // Convert the remaining payload from byte stream to 16-bit short samples
         int sampleCount = audioDataLength / 2;
         short[] pcmBuffer = new short[sampleCount];
-        ByteBuffer.wrap(rawData, 8, audioDataLength).asShortBuffer().get(pcmBuffer);
+        
+        // Explicitly enforce LITTLE_ENDIAN byte order to resolve the bytes-swapped silence issue
+        ByteBuffer.wrap(rawData, 8, audioDataLength)
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .asShortBuffer()
+                .get(pcmBuffer);
 
-        LinkedBlockingQueue<short[]> queue = peerAudioQueues.get(senderId);
-        if (queue != null) {
-            // Offer to jitter buffer. If capacity is exceeded, drop oldest chunk to prioritize real-time
-            if (queue.size() > 10) {
-                queue.poll();
-            }
-            queue.offer(pcmBuffer);
+        // Write directly to the peer's dedicated hardware AudioTrack
+        AudioTrack track = peerAudioTracks.get(senderId);
+        if (track != null && track.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
+            track.write(pcmBuffer, 0, sampleCount);
         }
     }
 
@@ -273,8 +250,34 @@ public class GroupCallManager {
 
     private void registerPeerActivity(int senderId) {
         peerLastSeen.put(senderId, System.currentTimeMillis());
-        if (!peerAudioQueues.containsKey(senderId)) {
-            peerAudioQueues.put(senderId, new LinkedBlockingQueue<>());
+        if (!peerAudioTracks.containsKey(senderId)) {
+            try {
+                int minBufferSize = AudioTrack.getMinBufferSize(8000, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
+                AudioTrack track = new AudioTrack.Builder()
+                        .setAudioAttributes(new AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                .build())
+                        .setAudioFormat(new AudioFormat.Builder()
+                                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                                .setSampleRate(8000)
+                                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                                .build())
+                        .setBufferSizeInBytes(minBufferSize)
+                        .setTransferMode(AudioTrack.MODE_STREAM)
+                        .build();
+
+                if (track.getState() == AudioTrack.STATE_INITIALIZED) {
+                    track.play();
+                    peerAudioTracks.put(senderId, track);
+                    WifeLogger.log(TAG, "Symmetrical AudioTrack successfully initialized for peer: [" + senderId + "]");
+                } else {
+                    WifeLogger.log(TAG, "AudioTrack state check failed for peer: [" + senderId + "]");
+                }
+            } catch (Exception e) {
+                WifeLogger.log(TAG, "Failed initializing peer AudioTrack stream: " + e.getMessage(), e);
+            }
+
             WifeLogger.log(TAG, "New group participant joined call pipeline: [" + senderId + "]");
             mainHandler.post(() -> {
                 if (groupCallListener != null) {
@@ -282,62 +285,6 @@ public class GroupCallManager {
                 }
             });
         }
-    }
-
-    private void startAudioMixerThread() {
-        audioMixerThread = new Thread(() -> {
-            WifeLogger.log(TAG, "PCM Software Audio Mixer thread running...");
-            final int samplesPerFrame = 160; // 20ms block at 8kHz sample rate
-            short[] mixOutputBuffer = new short[samplesPerFrame];
-            
-            while (isCallActive) {
-                long startTime = System.currentTimeMillis();
-                
-                // Clear output summing buffer
-                java.util.Arrays.fill(mixOutputBuffer, (short) 0);
-                boolean hasDataToMix = false;
-
-                // Mathematical summing loop across all registered peer queues
-                for (Map.Entry<Integer, LinkedBlockingQueue<short[]>> entry : peerAudioQueues.entrySet()) {
-                    LinkedBlockingQueue<short[]> queue = entry.getValue();
-                    short[] peerChunk = queue.poll();
-                    
-                    if (peerChunk != null) {
-                        hasDataToMix = true;
-                        int minLength = Math.min(samplesPerFrame, peerChunk.length);
-                        for (int i = 0; i < minLength; i++) {
-                            // Raw linear mathematical summing
-                            int mixedValue = mixOutputBuffer[i] + peerChunk[i];
-                            
-                            // Attenuating slightly to reduce clipping chance (Clipping Protection)
-                            mixedValue = (int) (mixedValue * 0.8f);
-                            
-                            // Safe short clipping protection limits
-                            if (mixedValue > 32767) mixedValue = 32767;
-                            if (mixedValue < -32768) mixedValue = -32768;
-                            
-                            mixOutputBuffer[i] = (short) mixedValue;
-                        }
-                    }
-                }
-
-                if (hasDataToMix && audioTrack != null && audioTrack.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
-                    audioTrack.write(mixOutputBuffer, 0, samplesPerFrame);
-                }
-
-                // Sleep precision calculation to maintain a reliable 20ms audio clock loop
-                long elapsed = System.currentTimeMillis() - startTime;
-                long sleepTime = 20 - elapsed;
-                if (sleepTime > 0) {
-                    try {
-                        Thread.sleep(sleepTime);
-                    } catch (InterruptedException e) {
-                        break;
-                    }
-                }
-            }
-        });
-        audioMixerThread.start();
     }
 
     private void startPeerPruningThread() {
@@ -357,7 +304,19 @@ public class GroupCallManager {
                         if (now - lastSeenTime > 5000) {
                             WifeLogger.log(TAG, "Watchdog timed out peer session: [" + peerId + "]");
                             peerLastSeen.remove(peerId);
-                            peerAudioQueues.remove(peerId);
+                            
+                            // Clean up and release the dedicated AudioTrack for this timed out peer
+                            AudioTrack track = peerAudioTracks.remove(peerId);
+                            if (track != null) {
+                                try {
+                                    if (track.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
+                                        track.stop();
+                                    }
+                                    track.release();
+                                    WifeLogger.log(TAG, "Released AudioTrack for timed out peer: [" + peerId + "]");
+                                } catch (Exception ignored) {}
+                            }
+
                             mainHandler.post(() -> {
                                 if (groupCallListener != null) {
                                     groupCallListener.onPeerLeft(peerId);
@@ -499,13 +458,26 @@ public class GroupCallManager {
             audioTrack = null;
         }
 
+        // Clean up and release all peer-specific AudioTracks cleanly [1]
+        for (Map.Entry<Integer, AudioTrack> entry : peerAudioTracks.entrySet()) {
+            AudioTrack track = entry.getValue();
+            if (track != null) {
+                try {
+                    if (track.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
+                        track.stop();
+                    }
+                    track.release();
+                } catch (Exception ignored) {}
+            }
+        }
+        peerAudioTracks.clear();
+
         if (multicastLock != null && multicastLock.isHeld()) {
             multicastLock.release();
             multicastLock = null;
             WifeLogger.log(TAG, "Released system MulticastLock cleanly.");
         }
 
-        peerAudioQueues.clear();
         peerLastSeen.clear();
         groupCallListener = null;
         
