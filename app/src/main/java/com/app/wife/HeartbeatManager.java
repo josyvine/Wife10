@@ -82,9 +82,20 @@ public class HeartbeatManager {
     }
 
     private void sendHeartbeat() {
-        String peerIp = ConnectionManager.getInstance(context).getPeerIpAddress();
-        if (peerIp != null && !peerIp.isEmpty()) {
-            CallSignalingManager.getInstance(context).sendSignal(peerIp, "heartbeat");
+        ConnectionManager conn = ConnectionManager.getInstance(context);
+        if (conn.isHost()) {
+            // Host pings all connected clients to keep their connections alive
+            for (String ip : conn.getGroupPeers().values()) {
+                if (ip != null && !ip.isEmpty()) {
+                    CallSignalingManager.getInstance(context).sendSignal(ip, "heartbeat");
+                }
+            }
+        } else {
+            // Client pings the Group Owner (Host)
+            String peerIp = conn.getPeerIpAddress();
+            if (peerIp != null && !peerIp.isEmpty()) {
+                CallSignalingManager.getInstance(context).sendSignal(peerIp, "heartbeat");
+            }
         }
     }
 
