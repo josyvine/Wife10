@@ -112,7 +112,23 @@ public class WiFiDirectManager {
 
     public void disconnect(final WifiP2pManager.ActionListener listener) {
         if (p2pManager == null || channel == null) return;
-        p2pManager.removeGroup(channel, listener);
+        // Wrap listener to immediately update connection info and clear local peers on success
+        p2pManager.removeGroup(channel, new WifiP2pManager.ActionListener() {
+            @Override
+            public void onSuccess() {
+                updateConnectionInfo(null);
+                if (listener != null) {
+                    listener.onSuccess();
+                }
+            }
+
+            @Override
+            public void onFailure(int reason) {
+                if (listener != null) {
+                    listener.onFailure(reason);
+                }
+            }
+        });
     }
 
     public void createGroup(final WifiP2pManager.ActionListener listener) {
