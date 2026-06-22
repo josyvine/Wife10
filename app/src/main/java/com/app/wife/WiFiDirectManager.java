@@ -132,6 +132,13 @@ public class WiFiDirectManager {
 
     public void updateConnectionInfo(WifiP2pInfo info) {
         this.connectionInfo = info;
+        // Symmetrical State Clear: Wipe local cached peers list on link disconnection
+        if (info == null || !info.groupFormed) {
+            peersList.clear();
+            for (PeerChangeListener listener : peerListeners) {
+                listener.onPeersChanged(new ArrayList<>(peersList));
+            }
+        }
         for (ConnectionChangeListener listener : connectionListeners) {
             listener.onConnectionChanged(info);
         }
