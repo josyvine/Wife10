@@ -93,6 +93,16 @@ public class ConnectionManager implements WiFiDirectManager.ConnectionChangeList
     // Parallel multi-peer registration mapping for 5-way group calls
     public synchronized void addGroupPeer(String deviceId, String ipAddress) {
         if (deviceId != null && !deviceId.isEmpty() && ipAddress != null && !ipAddress.isEmpty()) {
+            // Symmetrical Deduplication: Remove any previous temporary keys pointing to the same IP value
+            List<String> keysToRemove = new ArrayList<>();
+            for (java.util.Map.Entry<String, String> entry : groupPeers.entrySet()) {
+                if (ipAddress.equals(entry.getValue())) {
+                    keysToRemove.add(entry.getKey());
+                }
+            }
+            for (String key : keysToRemove) {
+                groupPeers.remove(key);
+            }
             groupPeers.put(deviceId, ipAddress);
             WifeLogger.log(TAG, "addGroupPeer: Tracked " + deviceId + " at IP: " + ipAddress + " | Group Size: " + groupPeers.size());
         }
