@@ -21,6 +21,9 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     
+    <!-- Vibration permission for call ringer feedback (Glitch 6 Fix) -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    
     <!-- Lock screen waking and keyguard bypass permissions -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
