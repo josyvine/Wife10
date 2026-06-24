@@ -35,9 +35,10 @@ public class FileTransferActivity extends AppCompatActivity implements
     private final List<FileEntity> historyList = new ArrayList<>();
     private RoomDatabaseManager db;
 
+    // Upgraded contract to select multiple files at once (Glitch 3 Fix)
     private final ActivityResultLauncher<String> filePickerLauncher = registerForActivityResult(
-            new ActivityResultContracts.GetContent(),
-            this::onFileSelected
+            new ActivityResultContracts.GetMultipleContents(),
+            this::onFilesSelected
     );
 
     // --- High-Speed Real-time Broadcast Receiver ---
@@ -84,7 +85,12 @@ public class FileTransferActivity extends AppCompatActivity implements
 
                 case Constants.ACTION_TRANSFER_ERROR:
                     String error = intent.getStringExtra(Constants.EXTRA_ERROR_MESSAGE);
-                    Toast.makeText(FileTransferActivity.this, "Transfer failed: " + error, Toast.LENGTH_SHORT).show();
+                    // Symmetrical check to suppress error UI on manual cancellation (Glitch 2 Fix)
+                    if ("Transfer cancelled by user.".equals(error)) {
+                        Toast.makeText(FileTransferActivity.this, "Transfer cancelled.", Toast.LENGTH_SHORT).show();
+                    } else {
+                        Toast.makeText(FileTransferActivity.this, "Transfer failed: " + error, Toast.LENGTH_SHORT).show();
+                    }
                     binding.layoutTransferProgress.setVisibility(View.GONE);
                     loadHistory();
                     
@@ -137,31 +143,67 @@ public class FileTransferActivity extends AppCompatActivity implements
         adapter.notifyDataSetChanged();
     }
 
-    private void onFileSelected(Uri uri) {
-        if (uri == null) return;
+    // Handles multiple selection and packages files into a background service queue (Glitch 3 Fix)
+    private void onFilesSelected(List<Uri> uris) {
+        if (uris == null || uris.isEmpty()) return;
 
-        String filename = "Unknown_File";
-        long size = 0;
+        ArrayList<String> uriStrings = new ArrayList<>();
+        ArrayList<String> fileNames = new ArrayList<>();
+        long[] fileSizes = new long[uris.size()];
 
-        try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
-            if (cursor != null && cursor.moveToFirst()) {
-                int nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                int sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE);
-                
-                if (nameIdx != -1) filename = cursor.getString(nameIdx);
-                if (sizeIdx != -1) size = cursor.getLong(sizeIdx);
+        for (int i = 0; i < uris.size(); i++) {
+            Uri uri = uris.get(i);
+            uriStrings.add(uri.toString());
+
+            String filename = "Unknown_File_" + i;
+            long size = 0;
+
+            try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    int sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE);
+                    
+                    if (nameIdx != -1) filename = cursor.getString(nameIdx);
+                    if (sizeIdx != -1) size = cursor.getLong(sizeIdx);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+            fileNames.add(filename);
+            fileSizes[i] = size;
         }
 
         binding.layoutTransferProgress.setVisibility(View.VISIBLE);
-        binding.tvActiveFileName.setText("Uploading: " + filename);
+        if (uris.size() == 1) {
+            binding.tvActiveFileName.setText("Uploading: " + fileNames.get(0));
+        } else {
+            binding.tvActiveFileName.setText("Uploading " + uris.size() + " files...");
+        }
         binding.pbTransferPercentage.setProgress(0);
         binding.tvTransferPercentText.setText("0%");
         binding.tvTransferSpeedAndSize.setText(""); // Clear previous stats on new transaction
 
-        FileSender.getInstance(this).sendFile(uri, filename, size, this);
+        String peerIp = ConnectionManager.getInstance(this).getPeerIpAddress();
+        if (peerIp == null || peerIp.isEmpty()) {
+            Toast.makeText(this, "No connected peer available.", Toast.LENGTH_SHORT).show();
+            binding.layoutTransferProgress.setVisibility(View.GONE);
+            return;
+        }
+
+        // Directly kick off queue transfer via foreground service
+        Intent serviceIntent = new Intent(this, FileTransferForegroundService.class);
+        serviceIntent.setAction(Constants.ACTION_START_TRANSFER);
+        serviceIntent.putExtra("IS_SENDER", true);
+        serviceIntent.putStringArrayListExtra("URI_LIST", uriStrings);
+        serviceIntent.putStringArrayListExtra("FILE_NAMES", fileNames);
+        serviceIntent.putExtra("FILE_SIZES", fileSizes);
+        serviceIntent.putExtra("PEER_IP", peerIp);
+        startService(serviceIntent);
+    }
+
+    // Deprecated for the new high-performance batch selected queue handler
+    private void onFileSelected(Uri uri) {
+        // Maintained for interface signatures compatibility
     }
 
     /**
