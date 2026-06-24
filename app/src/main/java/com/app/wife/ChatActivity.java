@@ -25,6 +25,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.wife.app.databinding.ActivityChatBinding;
 
@@ -53,23 +54,26 @@ public class ChatActivity extends AppCompatActivity implements ChatManager.Messa
     // Multimedia Pickers & Capture launch handlers
     private Uri tempCameraUri;
 
+    // Upgraded file picker contract to select multiple files at once (Glitch 3 Fix)
     private final ActivityResultLauncher<String> filePickerLauncher = registerForActivityResult(
-            new ActivityResultContracts.GetContent(),
-            uri -> {
-                if (uri != null) {
-                    // Dynamically resolve MIME type to prevent classification conflicts (e.g. image sent as doc)
-                    String mimeType = getContentResolver().getType(uri);
-                    String typePrefix = "[FILE]";
-                    if (mimeType != null) {
-                        if (mimeType.startsWith("image/")) {
-                            typePrefix = "[IMAGE]";
-                        } else if (mimeType.startsWith("video/")) {
-                            typePrefix = "[VIDEO]";
-                        } else if (mimeType.startsWith("audio/")) {
-                            typePrefix = "[AUDIO]";
+            new ActivityResultContracts.GetMultipleContents(),
+            uris -> {
+                if (uris != null && !uris.isEmpty()) {
+                    for (Uri uri : uris) {
+                        // Dynamically resolve MIME type to prevent classification conflicts (e.g. image sent as doc)
+                        String mimeType = getContentResolver().getType(uri);
+                        String typePrefix = "[FILE]";
+                        if (mimeType != null) {
+                            if (mimeType.startsWith("image/")) {
+                                typePrefix = "[IMAGE]";
+                            } else if (mimeType.startsWith("video/")) {
+                                typePrefix = "[VIDEO]";
+                            } else if (mimeType.startsWith("audio/")) {
+                                typePrefix = "[AUDIO]";
+                            }
                         }
+                        sendAttachment(uri, typePrefix);
                     }
-                    sendAttachment(uri, typePrefix);
                 }
             }
     );
@@ -144,6 +148,15 @@ public class ChatActivity extends AppCompatActivity implements ChatManager.Messa
         layoutManager.setStackFromEnd(true); // Always align chats from the bottom up like modern chats
         binding.rvChatHistory.setLayoutManager(layoutManager);
         binding.rvChatHistory.setAdapter(adapter);
+
+        // Auto-scroll observer to instantly snap viewport when messages are added (Glitch 5 Fix)
+        adapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
+            @Override
+            public void onItemRangeInserted(int positionStart, int itemCount) {
+                super.onItemRangeInserted(positionStart, itemCount);
+                binding.rvChatHistory.scrollToPosition(messagesList.size() - 1);
+            }
+        });
     }
 
     private void setupInputBarListeners() {
@@ -432,10 +445,6 @@ public class ChatActivity extends AppCompatActivity implements ChatManager.Messa
                 case "txt":
                 case "doc":
                 case "docx":
-                case "xls":
-                case "xlsx":
-                case "ppt":
-                case "pptx":
                     subFolder = "document";
                     break;
                 default:
@@ -547,8 +556,8 @@ public class ChatActivity extends AppCompatActivity implements ChatManager.Messa
 
         private void scrollToBottom() {
             if (!messagesList.isEmpty()) {
-                WifeLogger.log("ChatActivity", "Scrolling list view focus to position index: " + (messagesList.size() - 1));
-                binding.rvChatHistory.smoothScrollToPosition(messagesList.size() - 1);
+                WifeLogger.log("ChatActivity", "Scrolling list view focus directly to position index: " + (messagesList.size() - 1));
+                binding.rvChatHistory.scrollToPosition(messagesList.size() - 1); // Upgraded from smoothScroll to prevent dynamic layout shifts (Glitch 5 Fix)
             }
         }
 
