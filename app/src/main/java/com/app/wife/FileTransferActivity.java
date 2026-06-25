@@ -70,8 +70,15 @@ public class FileTransferActivity extends AppCompatActivity implements
                     // Format raw byte counts and speed to human-readable strings
                     String transferredStr = Utils.formatFileSize(transferred);
                     String totalStr = Utils.formatFileSize(total);
-                    String speedStr = String.format(java.util.Locale.US, "%.1f MB/s", speed);
-                    binding.tvTransferSpeedAndSize.setText(transferredStr + " / " + totalStr + " (" + speedStr + ")");
+                    
+                    // Symmetrical visual formatting during local preparation/compression phase (Glitch 1 Fix)
+                    if (filename != null && filename.startsWith("Compressing:")) {
+                        binding.tvActiveFileName.setText(filename);
+                        binding.tvTransferSpeedAndSize.setText(transferredStr + " / " + totalStr + " (Compressing...)");
+                    } else {
+                        String speedStr = String.format(java.util.Locale.US, "%.1f MB/s", speed);
+                        binding.tvTransferSpeedAndSize.setText(transferredStr + " / " + totalStr + " (" + speedStr + ")");
+                    }
                     break;
 
                 case Constants.ACTION_TRANSFER_COMPLETE:
