@@ -266,6 +266,7 @@ public class FileReceiver implements Runnable {
                          BufferedOutputStream bos = new BufferedOutputStream(fos, 128 * 1024)) {
                         byte[] buffer = new byte[16384];
                         long totalBytesRead = 0;
+                        long lastNotifTime = 0;
                         while (totalBytesRead < compressedSize && !FileTransferForegroundService.isCancelled) {
                             int bytesToRead = (int) Math.min(buffer.length, compressedSize - totalBytesRead);
                             int read = proxyIn.read(buffer, 0, bytesToRead);
@@ -274,6 +275,15 @@ public class FileReceiver implements Runnable {
                             }
                             bos.write(buffer, 0, read);
                             totalBytesRead += read;
+
+                            long now = System.currentTimeMillis();
+                            if (now - lastNotifTime >= 500) {
+                                // Feed chunk progress updates relative to compressed segment size during transaction
+                                int globalCompleted = activeTransfers.getOrDefault(fileId, new AtomicInteger(0)).get();
+                                int globalPercent = (globalCompleted * 100) / totalChunks;
+                                notifyChunkProgress(context, filename, globalPercent, globalCompleted * 20L * 1024L * 1024L + totalBytesRead, originalSize, fileIndex, 0.0, chunkIndex, totalBytesRead, compressedSize);
+                                lastNotifTime = now;
+                            }
                         }
                         bos.flush();
                     }
@@ -290,7 +300,8 @@ public class FileReceiver implements Runnable {
                         int completed = activeTransfers.get(fileId).incrementAndGet();
 
                         int percent = (completed * 100) / totalChunks;
-                        notifyChunkProgress(context, filename, percent, completed * 20L * 1024L * 1024L, originalSize, fileIndex, 0.0, chunkIndex, completed * 20L * 1024L * 1024L, originalSize);
+                        // Symmetrical broadcast update: Set actual progress parameters to match compressed boundaries for cleanup triggering
+                        notifyChunkProgress(context, filename, percent, completed * 20L * 1024L * 1024L, originalSize, fileIndex, 0.0, chunkIndex, compressedSize, compressedSize);
 
                         if (completed == totalChunks) {
                             mergeChunksAndFinalize(context, fileId, totalChunks, targetDir, filename, originalSize, fileIndex);
