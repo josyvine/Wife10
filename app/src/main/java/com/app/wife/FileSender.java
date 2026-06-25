@@ -272,11 +272,16 @@ public class FileSender {
                                 long now = System.currentTimeMillis();
                                 if (now - lastNotificationTime >= 500) {
                                     int percent = (int) ((totalSoFar * 100) / fileSize);
-                                    broadcastChunkProgress(fileName, totalSoFar, fileSize, percent, fileIndex, currentSpeed, finalChunkIdx, bytesSentForThisChunk, rawChunkSize);
+                                    // Symmetrical change: Pass compressedChunkSize instead of rawChunkSize to let the progress bar hit 100%
+                                    broadcastChunkProgress(fileName, totalSoFar, fileSize, percent, fileIndex, currentSpeed, finalChunkIdx, bytesSentForThisChunk, compressedChunkSize);
                                 }
                             }
                             os.flush();
                         }
+
+                        // Symmetrical solution: Send final 100% chunk progress broadcast on complete transfer loop exit (Glitch Fix)
+                        int finalPercent = (int) ((totalBytesSentCombined.get() * 100) / fileSize);
+                        broadcastChunkProgress(fileName, totalBytesSentCombined.get(), fileSize, finalPercent, fileIndex, 0.0, finalChunkIdx, compressedChunkSize, compressedChunkSize);
 
                         chunkChannel.socket().shutdownOutput();
                         Thread.sleep(500); // 500ms grace window to prevent connection truncation freezes
