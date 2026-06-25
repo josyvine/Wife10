@@ -86,21 +86,8 @@ public class DeviceDiscoveryActivity extends AppCompatActivity implements
             WifeLogger.log(TAG, "User selected target device for connection. " + deviceDetails);
             Toast.makeText(this, "Connecting to " + device.deviceName + "...", Toast.LENGTH_SHORT).show();
             
-            // Critical fix: We must stop the active peer discovery process before connecting
-            WifeLogger.log(TAG, "Halting peer discovery scans before executing connect call.");
-            wifiDirectManager.stopPeerDiscovery(new WifiP2pManager.ActionListener() {
-                @Override
-                public void onSuccess() {
-                    WifeLogger.log(TAG, "Peer discovery stopped successfully. Dispatching connection request.");
-                    executeConnection(device);
-                }
-
-                @Override
-                public void onFailure(int reason) {
-                    WifeLogger.log(TAG, "Failed to stop peer discovery before connecting. Reason: " + reason + ". Proceeding anyway.");
-                    executeConnection(device);
-                }
-            });
+            // Execute connection directly to prevent driver-level state machine locks (Reason: 0)
+            executeConnection(device);
         });
         binding.rvDiscoveredDevices.setLayoutManager(new LinearLayoutManager(this));
         binding.rvDiscoveredDevices.setAdapter(adapter);
@@ -208,12 +195,7 @@ public class DeviceDiscoveryActivity extends AppCompatActivity implements
         if (groupFormed) {
             isConnecting = false;
             Toast.makeText(this, "P2P Network Group Formed successfully!", Toast.LENGTH_SHORT).show();
-            WifeLogger.log(TAG, "Wi-Fi P2P Group formed successfully. Stopping active background discovery scans.");
-            
-            // Stop ongoing discovery on successful link establishment to prevent interface resets
-            wifiDirectManager.stopPeerDiscovery();
-            
-            WifeLogger.log(TAG, "Terminating DeviceDiscoveryActivity and returning to main dashboard.");
+            WifeLogger.log(TAG, "Wi-Fi P2P Group formed successfully. Terminating DeviceDiscoveryActivity and returning to main dashboard.");
             finish(); // Go back to Home Dashboard once connected, where detailed status will show
         } else {
             isConnecting = false;
