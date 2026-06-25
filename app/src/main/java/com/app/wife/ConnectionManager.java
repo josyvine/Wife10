@@ -31,6 +31,11 @@ public class ConnectionManager implements WiFiDirectManager.ConnectionChangeList
     // Parallel decoupled multi-peer directory for 5-way group calling
     private final java.util.Map<String, String> groupPeers = new java.util.concurrent.ConcurrentHashMap<>();
 
+    // Debounce variables to guard against transient disconnection states during multi-device handshakes
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private Runnable pendingTeardownRunnable;
+    private static final long TEARDOWN_DEBOUNCE_DELAY_MS = 2000;
+
     public interface ConnectionStatusListener {
         void onConnectionStateChanged(boolean connected, String peerIp, boolean isHost);
     }
@@ -124,6 +129,9 @@ public class ConnectionManager implements WiFiDirectManager.ConnectionChangeList
     @Override
     public void onConnectionChanged(WifiP2pInfo info) {
         if (info != null && info.groupFormed) {
+            // Cancel any scheduled connection teardowns since the link is stable and formed
+            cancelPendingTeardown();
+
             // Symmetrical State Guard: Only initiate servers and sockets on a fresh link connection
             if (!isConnected) {
                 isConnected = true;
@@ -147,9 +155,8 @@ public class ConnectionManager implements WiFiDirectManager.ConnectionChangeList
                 WifeLogger.log(TAG, "onConnectionChanged: Link already active. Ignoring server recreation to preserve client sockets.");
             }
         } else {
-            Log.d(TAG, "Connection lost, tearing down active sockets.");
-            WifeLogger.log(TAG, "P2P Connection lost. Tearing down active sockets.");
-            teardown();
+            // Delay teardown to prevent transient disconnect signals from dismantling active sockets
+            scheduleTeardownWithDelay();
         }
         notifyStateChanged();
     }
@@ -192,8 +199,38 @@ public class ConnectionManager implements WiFiDirectManager.ConnectionChangeList
         }
     }
 
+    private synchronized void scheduleTeardownWithDelay() {
+        if (pendingTeardownRunnable != null) {
+            return;
+        }
+        WifeLogger.log(TAG, "Disconnect event reported. Scheduling socket teardown with " + TEARDOWN_DEBOUNCE_DELAY_MS + "ms delay to guard against transient signals.");
+        pendingTeardownRunnable = () -> {
+            synchronized (ConnectionManager.this) {
+                WifeLogger.log(TAG, "Debounce timer elapsed. Executing final socket teardown.");
+                teardown();
+                pendingTeardownRunnable = null;
+            }
+        };
+        mainHandler.postDelayed(pendingTeardownRunnable, TEARDOWN_DEBOUNCE_DELAY_MS);
+    }
+
+    private synchronized void cancelPendingTeardown() {
+        if (pendingTeardownRunnable != null) {
+            WifeLogger.log(TAG, "P2P connection stabilized. Cancelling pending socket teardown task.");
+            mainHandler.removeCallbacks(pendingTeardownRunnable);
+            pendingTeardownRunnable = null;
+        }
+    }
+
     public synchronized void teardown() {
         WifeLogger.log(TAG, "teardown() invoked. Cleared connection state variables.");
+        
+        // Cancel any pending scheduled teardowns to avoid double execution
+        if (pendingTeardownRunnable != null) {
+            mainHandler.removeCallbacks(pendingTeardownRunnable);
+            pendingTeardownRunnable = null;
+        }
+
         isConnected = false;
         peerIpAddress = "";
         peerDeviceId = ""; // Clear active peer device ID on connection loss
