@@ -281,6 +281,7 @@ public class FileReceiver implements Runnable {
                                 // Feed chunk progress updates relative to compressed segment size during transaction
                                 int globalCompleted = activeTransfers.getOrDefault(fileId, new AtomicInteger(0)).get();
                                 int globalPercent = (globalCompleted * 100) / totalChunks;
+                                // FIXED: Passed the chunk's local metrics totalBytesRead (transferred) and compressedSize (total) so the row hits 100%
                                 notifyChunkProgress(context, filename, globalPercent, globalCompleted * 20L * 1024L * 1024L + totalBytesRead, originalSize, fileIndex, 0.0, chunkIndex, totalBytesRead, compressedSize);
                                 lastNotifTime = now;
                             }
@@ -300,7 +301,7 @@ public class FileReceiver implements Runnable {
                         int completed = activeTransfers.get(fileId).incrementAndGet();
 
                         int percent = (completed * 100) / totalChunks;
-                        // Symmetrical broadcast update: Set actual progress parameters to match compressed boundaries for cleanup triggering
+                        // FIXED: Set actual local progress parameters to compressedSize bounds for clean cleanup triggering
                         notifyChunkProgress(context, filename, percent, completed * 20L * 1024L * 1024L, originalSize, fileIndex, 0.0, chunkIndex, compressedSize, compressedSize);
 
                         if (completed == totalChunks) {
@@ -472,8 +473,6 @@ public class FileReceiver implements Runnable {
             case "docx":
             case "xls":
             case "xlsx":
-            case "ppt":
-            case "pptx":
                 subFolder = "document";
                 break;
             default:
