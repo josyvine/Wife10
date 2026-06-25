@@ -10,6 +10,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.view.View;
+import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher; 
@@ -58,50 +60,97 @@ public class FileTransferActivity extends AppCompatActivity implements
 
                     binding.layoutTransferProgress.setVisibility(View.VISIBLE);
                     
-                    if (FileTransferForegroundService.isPaused) {
-                        binding.tvActiveFileName.setText("Paused: " + filename);
-                    } else {
-                        binding.tvActiveFileName.setText("Processing: " + filename);
-                    }
-                    
-                    binding.pbTransferPercentage.setProgress(percent);
-                    binding.tvTransferPercentText.setText(percent + "%");
+                    boolean isChunk = intent.getBooleanExtra("IS_CHUNK", false);
+                    if (isChunk) {
+                        int chunkIndex = intent.getIntExtra("CHUNK_INDEX", 0);
+                        long chunkTransferred = intent.getLongExtra("CHUNK_BYTES_TRANSFERRED", 0);
+                        long chunkTotal = intent.getLongExtra("CHUNK_TOTAL_BYTES", 0);
 
-                    // Format raw byte counts and speed to human-readable strings
-                    String transferredStr = Utils.formatFileSize(transferred);
-                    String totalStr = Utils.formatFileSize(total);
-                    
-                    // Symmetrical visual formatting during local preparation/compression phase (Glitch 1 Fix)
-                    if (filename != null && filename.startsWith("Compressing:")) {
-                        binding.tvActiveFileName.setText(filename);
-                        binding.tvTransferSpeedAndSize.setText(transferredStr + " / " + totalStr + " (Compressing...)");
+                        // Dynamically inflate or retrieve progress row for the specific index
+                        View chunkRow = binding.containerActiveChunks.findViewWithTag("chunk_" + chunkIndex);
+                        if (chunkRow == null) {
+                            chunkRow = getLayoutInflater().inflate(R.layout.item_chunk_progress, binding.containerActiveChunks, false);
+                            chunkRow.setTag("chunk_" + chunkIndex);
+                            binding.containerActiveChunks.addView(chunkRow);
+                        }
+
+                        TextView tvChunkLabel = chunkRow.findViewById(R.id.tvChunkLabel);
+                        ProgressBar pbChunkPercentage = chunkRow.findViewById(R.id.pbChunkPercentage);
+                        TextView tvChunkSpeedAndSize = chunkRow.findViewById(R.id.tvChunkSpeedAndSize);
+                        TextView tvChunkPercentText = chunkRow.findViewById(R.id.tvChunkPercentText);
+
+                        int chunkPercent = (chunkTotal > 0) ? (int) ((chunkTransferred * 100) / chunkTotal) : 0;
+                        pbChunkPercentage.setProgress(chunkPercent);
+                        tvChunkPercentText.setText(chunkPercent + "%");
+
+                        String chunkTransferredStr = Utils.formatFileSize(chunkTransferred);
+                        String chunkTotalStr = Utils.formatFileSize(chunkTotal);
+
+                        // Visual formatting layout check for compression phase
+                        if (filename != null && filename.startsWith("Compressing:")) {
+                            tvChunkLabel.setText("Chunk #" + (chunkIndex + 1) + ": Compressing...");
+                            tvChunkSpeedAndSize.setText(chunkTransferredStr + " / " + chunkTotalStr + " (Compressing...)");
+                        } else {
+                            tvChunkLabel.setText("Chunk #" + (chunkIndex + 1) + ": Processing...");
+                            String speedStr = String.format(java.util.Locale.US, "%.1f MB/s", speed);
+                            tvChunkSpeedAndSize.setText(chunkTransferredStr + " / " + chunkTotalStr + " (" + speedStr + ")");
+                        }
+
+                        // Maintain aggregate progression layout state on parent elements
+                        binding.tvActiveFileName.setText("Processing Multiple Chunks...");
+                        binding.pbTransferPercentage.setProgress(percent);
+                        binding.tvTransferPercentText.setText(percent + "%");
+                        String aggregateTransferredStr = Utils.formatFileSize(transferred);
+                        String aggregateTotalStr = Utils.formatFileSize(total);
+                        String aggregateSpeedStr = String.format(java.util.Locale.US, "%.1f MB/s", speed);
+                        binding.tvTransferSpeedAndSize.setText(aggregateTransferredStr + " / " + aggregateTotalStr + " (" + aggregateSpeedStr + ")");
+
                     } else {
-                        String speedStr = String.format(java.util.Locale.US, "%.1f MB/s", speed);
-                        binding.tvTransferSpeedAndSize.setText(transferredStr + " / " + totalStr + " (" + speedStr + ")");
+                        // Sequential non-chunk legacy layout configuration
+                        binding.containerActiveChunks.removeAllViews(); // Clean up dynamic rows
+
+                        if (FileTransferForegroundService.isPaused) {
+                            binding.tvActiveFileName.setText("Paused: " + filename);
+                        } else {
+                            binding.tvActiveFileName.setText("Processing: " + filename);
+                        }
+                        
+                        binding.pbTransferPercentage.setProgress(percent);
+                        binding.tvTransferPercentText.setText(percent + "%");
+
+                        String transferredStr = Utils.formatFileSize(transferred);
+                        String totalStr = Utils.formatFileSize(total);
+                        
+                        if (filename != null && filename.startsWith("Compressing:")) {
+                            binding.tvActiveFileName.setText(filename);
+                            binding.tvTransferSpeedAndSize.setText(transferredStr + " / " + totalStr + " (Compressing...)");
+                        } else {
+                            String speedStr = String.format(java.util.Locale.US, "%.1f MB/s", speed);
+                            binding.tvTransferSpeedAndSize.setText(transferredStr + " / " + totalStr + " (" + speedStr + ")");
+                        }
                     }
                     break;
 
                 case Constants.ACTION_TRANSFER_COMPLETE:
                     Toast.makeText(FileTransferActivity.this, "Transfer completed successfully!", Toast.LENGTH_SHORT).show();
                     binding.layoutTransferProgress.setVisibility(View.GONE);
+                    binding.containerActiveChunks.removeAllViews(); // Purge chunk rows
                     loadHistory();
                     
-                    // Safety cleanup block to resolve Glitch 3
                     stopService(new Intent(FileTransferActivity.this, FileTransferForegroundService.class));
                     break;
 
                 case Constants.ACTION_TRANSFER_ERROR:
                     String error = intent.getStringExtra(Constants.EXTRA_ERROR_MESSAGE);
-                    // Symmetrical check to suppress error UI on manual cancellation (Glitch 2 Fix)
                     if ("Transfer cancelled by user.".equals(error)) {
                         Toast.makeText(FileTransferActivity.this, "Transfer cancelled.", Toast.LENGTH_SHORT).show();
                     } else {
                         Toast.makeText(FileTransferActivity.this, "Transfer failed: " + error, Toast.LENGTH_SHORT).show();
                     }
                     binding.layoutTransferProgress.setVisibility(View.GONE);
+                    binding.containerActiveChunks.removeAllViews(); // Purge chunk rows
                     loadHistory();
                     
-                    // Safety cleanup block to resolve Glitch 3
                     stopService(new Intent(FileTransferActivity.this, FileTransferForegroundService.class));
                     break;
             }
@@ -120,10 +169,9 @@ public class FileTransferActivity extends AppCompatActivity implements
         setupRecyclerView();
 
         binding.btnPickFile.setOnClickListener(v -> {
-            filePickerLauncher.launch("*/*"); // Let user pick any file type
+            filePickerLauncher.launch("*/*"); 
         });
 
-        // Interactive transfer dialog control hook
         binding.layoutTransferProgress.setOnClickListener(v -> showTransferOptionsDialog());
 
         loadHistory();
@@ -143,14 +191,28 @@ public class FileTransferActivity extends AppCompatActivity implements
         binding.rvFileHistory.setAdapter(adapter);
     }
 
+    /**
+     * Database transaction executed asynchronously off the Main/UI thread (ANR Prevention check)
+     */
     private void loadHistory() {
-        List<FileEntity> logs = db.fileDao().getAllFiles();
-        historyList.clear();
-        historyList.addAll(logs);
-        adapter.notifyDataSetChanged();
+        new Thread(() -> {
+            try {
+                List<FileEntity> logs = db.fileDao().getAllFiles();
+                runOnUiThread(() -> {
+                    try {
+                        historyList.clear();
+                        historyList.addAll(logs);
+                        adapter.notifyDataSetChanged();
+                    } catch (Exception e) {
+                        WifeLogger.log(TAG, "Failed executing adapter updates: " + e.getMessage());
+                    }
+                });
+            } catch (Exception e) {
+                WifeLogger.log(TAG, "Failed reading Database contents asynchronously: " + e.getMessage());
+            }
+        }).start();
     }
 
-    // Handles multiple selection and packages files into a background service queue (Glitch 3 Fix)
     private void onFilesSelected(List<Uri> uris) {
         if (uris == null || uris.isEmpty()) return;
 
@@ -181,6 +243,8 @@ public class FileTransferActivity extends AppCompatActivity implements
         }
 
         binding.layoutTransferProgress.setVisibility(View.VISIBLE);
+        binding.containerActiveChunks.removeAllViews(); // Fresh visual state setup
+
         if (uris.size() == 1) {
             binding.tvActiveFileName.setText("Uploading: " + fileNames.get(0));
         } else {
@@ -188,7 +252,7 @@ public class FileTransferActivity extends AppCompatActivity implements
         }
         binding.pbTransferPercentage.setProgress(0);
         binding.tvTransferPercentText.setText("0%");
-        binding.tvTransferSpeedAndSize.setText(""); // Clear previous stats on new transaction
+        binding.tvTransferSpeedAndSize.setText(""); 
 
         String peerIp = ConnectionManager.getInstance(this).getPeerIpAddress();
         if (peerIp == null || peerIp.isEmpty()) {
@@ -197,7 +261,6 @@ public class FileTransferActivity extends AppCompatActivity implements
             return;
         }
 
-        // Directly kick off queue transfer via foreground service
         Intent serviceIntent = new Intent(this, FileTransferForegroundService.class);
         serviceIntent.setAction(Constants.ACTION_START_TRANSFER);
         serviceIntent.putExtra("IS_SENDER", true);
@@ -208,15 +271,10 @@ public class FileTransferActivity extends AppCompatActivity implements
         startService(serviceIntent);
     }
 
-    // Deprecated for the new high-performance batch selected queue handler
     private void onFileSelected(Uri uri) {
-        // Maintained for interface signatures compatibility
+        // Compatibility Interface signature compatibility
     }
 
-    /**
-     * Shows a popup dialog allowing the user to Pause, Resume, or Cancel 
-     * the background task without modifying your layout XML coordinates.
-     */
     private void showTransferOptionsDialog() {
         String[] options = FileTransferForegroundService.isPaused ? 
                 new String[]{"Resume Transfer", "Cancel Transfer"} : 
@@ -243,46 +301,39 @@ public class FileTransferActivity extends AppCompatActivity implements
                 .show();
     }
 
-    // --- Outgoing Callbacks (FileSender.FileTransferListener) ---
-
     @Override
     public void onProgress(int percent) {
-        // Maintained for backward compatibility
+        // Backward compatibility
     }
 
     @Override
     public void onComplete(String path) {
-        // Maintained for backward compatibility
+        // Backward compatibility
     }
 
     @Override
     public void onError(String error) {
-        // Maintained for backward compatibility
+        // Backward compatibility
     }
-
-    // --- Incoming Callbacks (FileReceiver.FileReceiveListener) ---
 
     @Override
     public void onProgress(String filename, int percent) {
-        // Maintained for backward compatibility
+        // Backward compatibility
     }
 
     @Override
     public void onComplete(String filename, String localPath) {
-        // Maintained for backward compatibility
+        // Backward compatibility
     }
 
-    // Callback invoked when delete button is tapped inside RecyclerView row item
     @Override
     public void onFileDelete(FileEntity file, int position) {
         WifeLogger.log("FileTransferActivity", "User requested deletion of file log entity: " + file.getFilename() + " at index: " + position);
         new Thread(() -> {
             try {
-                // 1. Delete entity record from SQLite database using the DAO
                 db.fileDao().deleteById(file.getId());
                 WifeLogger.log("FileTransferActivity", "Successfully deleted file transfer entry from Room Database.");
 
-                // 2. Refresh active list elements on Main UI Thread safely
                 runOnUiThread(() -> {
                     try {
                         if (position < historyList.size()) {
@@ -306,7 +357,6 @@ public class FileTransferActivity extends AppCompatActivity implements
         super.onResume();
         FileReceiver.registerListener(this);
 
-        // Register local broadcast receiver for high-speed updates
         IntentFilter filter = new IntentFilter();
         filter.addAction(Constants.ACTION_TRANSFER_PROGRESS);
         filter.addAction(Constants.ACTION_TRANSFER_COMPLETE);
@@ -319,7 +369,6 @@ public class FileTransferActivity extends AppCompatActivity implements
         super.onPause();
         FileReceiver.unregisterListener(this);
 
-        // Unregister local broadcast receiver cleanly
         LocalBroadcastManager.getInstance(this).unregisterReceiver(transferReceiver);
     }
 }
