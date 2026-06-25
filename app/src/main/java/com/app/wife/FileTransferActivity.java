@@ -66,34 +66,43 @@ public class FileTransferActivity extends AppCompatActivity implements
                         long chunkTransferred = intent.getLongExtra("CHUNK_BYTES_TRANSFERRED", 0);
                         long chunkTotal = intent.getLongExtra("CHUNK_TOTAL_BYTES", 0);
 
-                        // Dynamically inflate or retrieve progress row for the specific index
-                        View chunkRow = binding.containerActiveChunks.findViewWithTag("chunk_" + chunkIndex);
-                        if (chunkRow == null) {
-                            chunkRow = getLayoutInflater().inflate(R.layout.item_chunk_progress, binding.containerActiveChunks, false);
-                            chunkRow.setTag("chunk_" + chunkIndex);
-                            binding.containerActiveChunks.addView(chunkRow);
-                        }
-
-                        TextView tvChunkLabel = chunkRow.findViewById(R.id.tvChunkLabel);
-                        ProgressBar pbChunkPercentage = chunkRow.findViewById(R.id.pbChunkPercentage);
-                        TextView tvChunkSpeedAndSize = chunkRow.findViewById(R.id.tvChunkSpeedAndSize);
-                        TextView tvChunkPercentText = chunkRow.findViewById(R.id.tvChunkPercentText);
-
                         int chunkPercent = (chunkTotal > 0) ? (int) ((chunkTransferred * 100) / chunkTotal) : 0;
-                        pbChunkPercentage.setProgress(chunkPercent);
-                        tvChunkPercentText.setText(chunkPercent + "%");
 
-                        String chunkTransferredStr = Utils.formatFileSize(chunkTransferred);
-                        String chunkTotalStr = Utils.formatFileSize(chunkTotal);
-
-                        // Visual formatting layout check for compression phase
-                        if (filename != null && filename.startsWith("Compressing:")) {
-                            tvChunkLabel.setText("Chunk #" + (chunkIndex + 1) + ": Compressing...");
-                            tvChunkSpeedAndSize.setText(chunkTransferredStr + " / " + chunkTotalStr + " (Compressing...)");
+                        // Symmetrical Cleanup logic: If chunk reaches completion, purge its row to prevent UI bloating
+                        if (chunkPercent >= 100) {
+                            View chunkRow = binding.containerActiveChunks.findViewWithTag("chunk_" + chunkIndex);
+                            if (chunkRow != null) {
+                                binding.containerActiveChunks.removeView(chunkRow);
+                            }
                         } else {
-                            tvChunkLabel.setText("Chunk #" + (chunkIndex + 1) + ": Processing...");
-                            String speedStr = String.format(java.util.Locale.US, "%.1f MB/s", speed);
-                            tvChunkSpeedAndSize.setText(chunkTransferredStr + " / " + chunkTotalStr + " (" + speedStr + ")");
+                            // Dynamically inflate or retrieve progress row for the specific index
+                            View chunkRow = binding.containerActiveChunks.findViewWithTag("chunk_" + chunkIndex);
+                            if (chunkRow == null) {
+                                chunkRow = getLayoutInflater().inflate(R.layout.item_chunk_progress, binding.containerActiveChunks, false);
+                                chunkRow.setTag("chunk_" + chunkIndex);
+                                binding.containerActiveChunks.addView(chunkRow);
+                            }
+
+                            TextView tvChunkLabel = chunkRow.findViewById(R.id.tvChunkLabel);
+                            ProgressBar pbChunkPercentage = chunkRow.findViewById(R.id.pbChunkPercentage);
+                            TextView tvChunkSpeedAndSize = chunkRow.findViewById(R.id.tvChunkSpeedAndSize);
+                            TextView tvChunkPercentText = chunkRow.findViewById(R.id.tvChunkPercentText);
+
+                            pbChunkPercentage.setProgress(chunkPercent);
+                            tvChunkPercentText.setText(chunkPercent + "%");
+
+                            String chunkTransferredStr = Utils.formatFileSize(chunkTransferred);
+                            String chunkTotalStr = Utils.formatFileSize(chunkTotal);
+
+                            // Visual formatting layout check for compression phase
+                            if (filename != null && filename.startsWith("Compressing:")) {
+                                tvChunkLabel.setText("Chunk #" + (chunkIndex + 1) + ": Compressing...");
+                                tvChunkSpeedAndSize.setText(chunkTransferredStr + " / " + chunkTotalStr + " (Compressing...)");
+                            } else {
+                                tvChunkLabel.setText("Chunk #" + (chunkIndex + 1) + ": Processing...");
+                                String speedStr = String.format(java.util.Locale.US, "%.1f MB/s", speed);
+                                tvChunkSpeedAndSize.setText(chunkTransferredStr + " / " + chunkTotalStr + " (" + speedStr + ")");
+                            }
                         }
 
                         // Maintain aggregate progression layout state on parent elements
