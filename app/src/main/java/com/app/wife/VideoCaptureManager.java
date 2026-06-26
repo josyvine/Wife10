@@ -178,53 +178,9 @@ public class VideoCaptureManager {
         int height = image.getHeight();
         int rotationDegrees = image.getImageInfo().getRotationDegrees();
 
-        ImageProxy.PlaneProxy[] planes = image.getPlanes();
-        ByteBuffer yBuffer = planes[0].getBuffer();
-        ByteBuffer uBuffer = planes[1].getBuffer();
-        ByteBuffer vBuffer = planes[2].getBuffer();
-
-        yBuffer.rewind();
-        uBuffer.rewind();
-        vBuffer.rewind();
-
-        // NV21 requires exactly width * height for Y, and width * height / 2 for interleaved VU
-        byte[] nv21 = new byte[width * height + (width * height / 2)];
-
-        // Copy Y plane respecting row strides and pixel strides
-        int yRowStride = planes[0].getRowStride();
-        int yPixelStride = planes[0].getPixelStride();
-        int pos = 0;
-
-        for (int row = 0; row < height; row++) {
-            yBuffer.position(row * yRowStride);
-            for (int col = 0; col < width; col++) {
-                nv21[pos++] = yBuffer.get();
-                if (yPixelStride > 1 && col < width - 1) {
-                    yBuffer.position(yBuffer.position() + yPixelStride - 1);
-                }
-            }
-        }
-
-        // Interleave V and U plane parameters (NV21 chroma expects V, then U)
-        int uRowStride = planes[1].getRowStride();
-        int uPixelStride = planes[1].getPixelStride();
-        int vRowStride = planes[2].getRowStride();
-        int vPixelStride = planes[2].getPixelStride();
-
-        int chromaHeight = height / 2;
-        int chromaWidth = width / 2;
-
-        for (int row = 0; row < chromaHeight; row++) {
-            for (int col = 0; col < chromaWidth; col++) {
-                int vPos = row * vRowStride + col * vPixelStride;
-                int uPos = row * uRowStride + col * uPixelStride;
-
-                // Defensive check to avoid buffer out of bounds
-                if (vPos < vBuffer.capacity() && uPos < uBuffer.capacity()) {
-                    nv21[pos++] = vBuffer.get(vPos); // V goes first
-                    nv21[pos++] = uBuffer.get(uPos); // U goes second
-                }
-            }
+        byte[] nv21 = yuv420ToNV21(image);
+        if (nv21 == null) {
+            return null;
         }
 
         byte[] jpegBytes;
@@ -274,5 +230,86 @@ public class VideoCaptureManager {
         }
 
         return jpegBytes;
+    }
+
+    private byte[] yuv420ToNV21(ImageProxy image) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        ImageProxy.PlaneProxy[] planes = image.getPlanes();
+
+        byte[] nv21 = new byte[width * height + (width * height / 2)];
+
+        ByteBuffer yBuffer = planes[0].getBuffer();
+        ByteBuffer uBuffer = planes[1].getBuffer();
+        ByteBuffer vBuffer = planes[2].getBuffer();
+
+        yBuffer.rewind();
+        uBuffer.rewind();
+        vBuffer.rewind();
+
+        int yRowStride = planes[0].getRowStride();
+        int yPixelStride = planes[0].getPixelStride();
+        int uRowStride = planes[1].getRowStride();
+        int uPixelStride = planes[1].getPixelStride();
+        int vRowStride = planes[2].getRowStride();
+        int vPixelStride = planes[2].getPixelStride();
+
+        int pos = 0;
+        int yLimit = yBuffer.limit();
+
+        // 1. Copy Y Plane (Plane 0)
+        for (int row = 0; row < height; row++) {
+            int rowStart = row * yRowStride;
+            if (yPixelStride == 1) {
+                yBuffer.position(rowStart);
+                yBuffer.get(nv21, pos, width);
+                pos += width;
+            } else {
+                for (int col = 0; col < width; col++) {
+                    int index = rowStart + (col * yPixelStride);
+                    if (index < yLimit) {
+                        nv21[pos++] = yBuffer.get(index);
+                    } else {
+                        nv21[pos++] = 0;
+                    }
+                }
+            }
+        }
+
+        // 2. Interleave V and U (NV21 expectations: V, U, V, U...)
+        int chromaHeight = height / 2;
+        int chromaWidth = width / 2;
+
+        int uLimit = uBuffer.limit();
+        int vLimit = vBuffer.limit();
+
+        for (int row = 0; row < chromaHeight; row++) {
+            int vRowStart = row * vRowStride;
+            int uRowStart = row * uRowStride;
+
+            for (int col = 0; col < chromaWidth; col++) {
+                int vIdx = vRowStart + (col * vPixelStride);
+                int uIdx = uRowStart + (col * uPixelStride);
+
+                if (vIdx < vLimit) {
+                    nv21[pos++] = vBuffer.get(vIdx);
+                } else {
+                    nv21[pos++] = 0;
+                }
+
+                if (uIdx < uLimit) {
+                    nv21[pos++] = uBuffer.get(uIdx);
+                } else {
+                    nv21[pos++] = 0;
+                }
+            }
+        }
+
+        // Restore original positions
+        yBuffer.rewind();
+        uBuffer.rewind();
+        vBuffer.rewind();
+
+        return nv21;
     }
 }
