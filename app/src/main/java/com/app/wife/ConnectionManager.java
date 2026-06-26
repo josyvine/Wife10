@@ -156,7 +156,12 @@ public class ConnectionManager implements WiFiDirectManager.ConnectionChangeList
             }
         } else {
             // Delay teardown to prevent transient disconnect signals from dismantling active sockets
-            scheduleTeardownWithDelay();
+            // State Guard: Only schedule a teardown if we are currently recorded as connected to avoid infinite loops
+            if (isConnected) {
+                scheduleTeardownWithDelay();
+            } else {
+                WifeLogger.log(TAG, "onConnectionChanged: Already disconnected. Skipping redundant teardown scheduled call.");
+            }
         }
         notifyStateChanged();
     }
