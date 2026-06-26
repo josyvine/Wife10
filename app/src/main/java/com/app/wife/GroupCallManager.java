@@ -130,22 +130,28 @@ public class GroupCallManager {
         audioSocket = new DatagramSocket(Constants.OFF_PORT_GROUP_AUDIO);
         audioSocket.setBroadcast(true);
         audioSocket.setReuseAddress(true);
+        audioSocket.setReceiveBufferSize(256 * 1024); // 256KB buffer to avoid audio packet drops
+        audioSocket.setSendBufferSize(256 * 1024);
         
         // Bind video receiver socket to Port 8904
         videoSocket = new DatagramSocket(Constants.OFF_PORT_GROUP_VIDEO);
         videoSocket.setBroadcast(true);
         videoSocket.setReuseAddress(true);
+        videoSocket.setReceiveBufferSize(1024 * 1024); // 1MB buffer for larger JPEG payload frames
+        videoSocket.setSendBufferSize(1024 * 1024);
         
-        WifeLogger.log(TAG, "UDP sockets successfully bound to ports " + Constants.OFF_PORT_GROUP_AUDIO + " (Audio) and " + Constants.OFF_PORT_GROUP_VIDEO + " (Video).");
+        WifeLogger.log(TAG, "UDP sockets successfully bound to ports " + Constants.OFF_PORT_GROUP_AUDIO + " (Audio) and " + Constants.OFF_PORT_GROUP_VIDEO + " (Video). Sockets buffer sizes optimized.");
     }
 
     private void startReceiverThreads() {
         // 1. Spawning Audio Broadcast Receiver Thread
         audioReceiverThread = new Thread(() -> {
             WifeLogger.log(TAG, "UDP Audio receiver thread listening...");
-            byte[] packetBuffer = new byte[4096];
             while (isCallActive) {
                 try {
+                    // Allocating packetBuffer inside the loop ensures that concurrent background
+                    // relay threads do not have their data overwritten by incoming frames.
+                    byte[] packetBuffer = new byte[4096];
                     DatagramPacket packet = new DatagramPacket(packetBuffer, packetBuffer.length);
                     audioSocket.receive(packet);
                     
@@ -164,9 +170,11 @@ public class GroupCallManager {
         // 2. Spawning Video Broadcast Receiver Thread
         videoReceiverThread = new Thread(() -> {
             WifeLogger.log(TAG, "UDP Video receiver thread listening...");
-            byte[] packetBuffer = new byte[65535]; // Maximum safe UDP payload limit
             while (isCallActive) {
                 try {
+                    // Allocating packetBuffer inside the loop ensures that concurrent background
+                    // relay threads do not have their data overwritten by incoming frames.
+                    byte[] packetBuffer = new byte[65535]; // Maximum safe UDP payload limit
                     DatagramPacket packet = new DatagramPacket(packetBuffer, packetBuffer.length);
                     videoSocket.receive(packet);
                     
